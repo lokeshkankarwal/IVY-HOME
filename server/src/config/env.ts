@@ -13,7 +13,11 @@ export const env = {
   port: Number(process.env.PORT ?? 4000),
   nodeEnv: process.env.NODE_ENV ?? "development",
   jwtSecret: process.env.JWT_SECRET ?? "dev-secret",
-  clientOrigin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173",
+  // Supports a comma-separated list, e.g. "https://ivy-home-client.vercel.app,http://localhost:5173"
+  clientOrigin: (process.env.CLIENT_ORIGIN ?? "http://localhost:5173")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean),
   databaseUrl: process.env.DATABASE_URL ?? "",
   ivyBaseUrl: (process.env.IVY_BASE_URL ?? "https://solve.ivy.homes").replace(/\/$/, ""),
   ivyApiKey: process.env.IVY_API_KEY ?? "",
