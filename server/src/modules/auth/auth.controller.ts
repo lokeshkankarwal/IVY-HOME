@@ -24,10 +24,12 @@ const loginSchema = z.object({
 });
 
 function cookieOpts() {
+  const prod = env.nodeEnv === "production";
   return {
     httpOnly: true,
-    sameSite: "lax" as const,
-    secure: env.nodeEnv === "production",
+    // Cross-origin (Vercel → Render) requires SameSite=none + Secure=true
+    sameSite: prod ? ("none" as const) : ("lax" as const),
+    secure: prod,
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: "/",
   };
@@ -188,8 +190,9 @@ export async function me(req: Request, res: Response) {
 }
 
 export async function logout(req: Request, res: Response) {
-  res.clearCookie("token", { path: "/" });
-  res.clearCookie("ivy_token", { path: "/" });
+  const opts = { ...cookieOpts(), maxAge: 0 };
+  res.clearCookie("token", opts);
+  res.clearCookie("ivy_token", opts);
   res.json({ ok: true });
 }
 
