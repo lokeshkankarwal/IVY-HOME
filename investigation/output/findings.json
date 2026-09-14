@@ -1,0 +1,38 @@
+[
+  {
+    "endpoint": "/health",
+    "category": "timestamps",
+    "documented": "Timestamps are ISO 8601, UTC, Z suffix, everywhere in the API",
+    "actual": "Health clock uses an explicit IST offset, e.g. 2026-09-14T21:00:08.285315+05:30",
+    "how_found": "GET /health with no authentication before any other call",
+    "impact": "Any code that assumes Z/UTC will shift dates by 5.5 hours, which breaks listings_last_7_days if you mix sources",
+    "evidence": []
+  },
+  {
+    "endpoint": "*",
+    "category": "auth",
+    "documented": "Every request must carry the API key as a query parameter ?api_key=",
+    "actual": "The API rejects query-parameter keys (401: {\"detail\":\"send your key in the X-API-Key request header, not as a query parameter\"}) and requires the X-API-Key header instead",
+    "how_found": "Called GET /v1/listings with api_key in the query string, then again with X-API-Key",
+    "impact": "A client that follows the docs cannot authenticate",
+    "evidence": []
+  },
+  {
+    "endpoint": "/v1/listing/{id}",
+    "category": "missing_endpoint",
+    "documented": "GET /v1/listing/{listing_id} returns a single listing",
+    "actual": "That path 404s (404). The working detail path is GET /v1/listings/{id} (status 401 for a missing id, i.e. the route exists)",
+    "how_found": "Probed both /v1/listing/{id} and /v1/listings/{id} with a fake id",
+    "impact": "Detail pages built from the docs fail",
+    "evidence": []
+  },
+  {
+    "endpoint": "/v1/analytics/summary",
+    "category": "missing_endpoint",
+    "documented": "GET /v1/analytics/summary returns pre-computed aggregates",
+    "actual": "404 {\"detail\":\"Not Found\"}",
+    "how_found": "Called the documented analytics path",
+    "impact": "Insights screen cannot use the documented URL",
+    "evidence": []
+  }
+]

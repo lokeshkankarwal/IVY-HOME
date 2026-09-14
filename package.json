@@ -1,0 +1,18 @@
+{
+  "name": "ivy-homes-platform",
+  "private": true,
+  "workspaces": ["server", "client", "investigation"],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client",
+    "build": "npm run build -w server && npm run build -w client",
+    "db:migrate": "npm run prisma:migrate -w server",
+    "db:seed": "npm run prisma:seed -w server",
+    "investigate": "npm run investigate -w investigation",
+    "submission": "npm run submission -w investigation"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

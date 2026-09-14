@@ -1,0 +1,319 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  SELLER
+  SUPERADMIN
+}
+
+enum SellerApprovalStatus {
+  PENDING_VERIFICATION
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum PropertyStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  SOLD
+}
+
+enum PropertyType {
+  APARTMENT
+  VILLA
+  INDEPENDENT_HOUSE
+  PLOT
+  BUILDER_FLOOR
+}
+
+enum Furnishing {
+  UNFURNISHED
+  SEMI_FURNISHED
+  FULLY_FURNISHED
+}
+
+enum InterestLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum InteractionType {
+  CALL
+  VISIT
+  NOTE
+  FOLLOW_UP
+  WHATSAPP
+  EMAIL
+}
+
+enum VisitStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum OrderStatus {
+  INITIATED
+  SOLD
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  name            String
+  phone           String?
+  role            Role      @default(CUSTOMER)
+  emailVerifiedAt DateTime?
+  ivyAccessToken  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sellerProfile     SellerProfile?
+  properties        Property[]
+  favourites        Favourite[]
+  cart              Cart?
+  orders            Order[]
+  verifications     EmailVerification[]
+  auditLogs         AuditLog[]           @relation("Actor")
+  clients           Client[]
+  interactions      ClientInteraction[]
+  visits            PropertyVisit[]
+  interests         ClientPropertyInterest[]
+
+  @@index([role])
+}
+
+model SellerProfile {
+  id              String                @id @default(cuid())
+  userId          String                @unique
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName     String?
+  licenseNumber   String?
+  status          SellerApprovalStatus  @default(PENDING_VERIFICATION)
+  rejectionReason String?
+  approvedAt      DateTime?
+  approvedById    String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@index([status])
+}
+
+model EmailVerification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  otpHash   String
+  expiresAt DateTime
+  usedAt    DateTime?
+  attempts  Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Property {
+  id                String         @id @default(cuid())
+  sellerId          String
+  seller            User           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  title             String
+  description       String
+  propertyType      PropertyType
+  bhk               Int
+  bathrooms         Int            @default(1)
+  price             Int
+  carpetArea        Int
+  superBuiltUpArea  Int
+  furnishing        Furnishing
+  floor             Int?
+  totalFloors       Int?
+  parking           Int            @default(0)
+  address           String
+  locality          String
+  city              String
+  latitude          Float
+  longitude         Float
+  contactName       String
+  contactPhone      String
+  status            PropertyStatus @default(DRAFT)
+  views             Int            @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  images      PropertyImage[]
+  favourites  Favourite[]
+  cartItems   CartItem[]
+  interests   ClientPropertyInterest[]
+  interactions ClientInteraction[]
+  visits      PropertyVisit[]
+  orders      Order[]
+
+  @@index([locality])
+  @@index([price])
+  @@index([bhk])
+  @@index([status])
+  @@index([sellerId])
+  @@index([propertyType])
+  @@index([furnishing])
+}
+
+model PropertyImage {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  path       String
+  sortOrder  Int      @default(0)
+  isPrimary  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([propertyId])
+}
+
+model Favourite {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  ivyListingId String?
+  createdAt  DateTime  @default(now())
+
+  @@unique([userId, propertyId])
+  @@unique([userId, ivyListingId])
+  @@index([userId])
+}
+
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  updatedAt DateTime   @updatedAt
+}
+
+model CartItem {
+  id         String   @id @default(cuid())
+  cartId     String
+  cart       Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([cartId, propertyId])
+}
+
+model Client {
+  id            String        @id @default(cuid())
+  sellerId      String
+  seller        User          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  name          String
+  phone         String
+  email         String?
+  notes         String?
+  interestLevel InterestLevel @default(MEDIUM)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  interests    ClientPropertyInterest[]
+  interactions ClientInteraction[]
+  visits       PropertyVisit[]
+
+  @@index([sellerId])
+  @@index([interestLevel])
+}
+
+model ClientPropertyInterest {
+  id            String        @id @default(cuid())
+  clientId      String
+  client        Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  propertyId    String
+  property      Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  sellerId      String
+  seller        User          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  interestLevel InterestLevel @default(MEDIUM)
+  budget        Int?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([clientId, propertyId])
+  @@index([propertyId])
+  @@index([sellerId])
+}
+
+model ClientInteraction {
+  id         String           @id @default(cuid())
+  clientId   String
+  client     Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  propertyId String?
+  property   Property?        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  sellerId   String
+  seller     User             @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  type       InteractionType
+  notes      String
+  timestamp  DateTime         @default(now())
+
+  @@index([clientId])
+  @@index([sellerId])
+  @@index([timestamp])
+}
+
+model PropertyVisit {
+  id         String      @id @default(cuid())
+  clientId   String
+  client     Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  sellerId   String
+  seller     User        @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  status     VisitStatus @default(SCHEDULED)
+  notes      String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([propertyId])
+  @@index([sellerId])
+  @@index([scheduledAt])
+}
+
+model Order {
+  id         String      @id @default(cuid())
+  customerId String?
+  customer   User?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  propertyId String
+  property   Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  status     OrderStatus @default(SOLD)
+  soldPrice  Int
+  createdAt  DateTime    @default(now())
+
+  @@index([customerId])
+  @@index([propertyId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation("Actor", fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}

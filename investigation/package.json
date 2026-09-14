@@ -1,0 +1,17 @@
+{
+  "name": "investigation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "investigate": "tsx src/run.ts",
+    "submission": "tsx src/run.ts"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

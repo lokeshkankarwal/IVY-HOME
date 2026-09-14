@@ -1,0 +1,149 @@
+[
+  {
+    "path": "/auth/login",
+    "method": "POST",
+    "status": 401,
+    "json": {
+      "detail": "unknown api key"
+    }
+  },
+  {
+    "path": "/auth/logout",
+    "method": "POST",
+    "status": 401,
+    "json": {
+      "detail": "unknown api key"
+    }
+  },
+  {
+    "path": "/v1/listings",
+    "method": "GET",
+    "status": 401,
+    "json": {
+      "detail": "unknown api key"
+    }
+  },
+  {
+    "path": "/v1/listing/does-not-exist",
+    "method": "GET",
+    "status": 404,
+    "json": {
+      "detail": "Not Found"
+    }
+  },
+  {
+    "path": "/v1/listings/does-not-exist/similar",
+    "method": "GET",
+    "status": 404,
+    "json": {
+      "detail": "Not Found"
+    }
+  },
+  {
+    "path": "/v1/rentals",
+    "method": "GET",
+    "status": 401,
+    "json": {
+      "detail": "unknown api key"
+    }
+  },
+  {
+    "path": "/v1/rentals/does-not-exist",
+    "method": "GET",
+    "status": 401,
+    "json": {
+      "detail": "unknown api key"
+    }
+  },
+  {
+    "path": "/v1/projects",
+    "method": "GET",
+    "status": 401,
+    "json": {
+      "detail": "unknown api key"
+    }
+  },
+  {
+    "path": "/v1/projects/does-not-exist",
+    "method": "GET",
+    "status": 401,
+    "json": {
+      "detail": "unknown api key"
+    }
+  },
+  {
+    "path": "/v1/favourites",
+    "method": "GET",
+    "status": 404,
+    "json": {
+      "detail": "Not Found"
+    }
+  },
+  {
+    "path": "/v1/analytics/summary",
+    "method": "GET",
+    "status": 404,
+    "json": {
+      "detail": "Not Found"
+    }
+  },
+  {
+    "path": "/health",
+    "method": "GET",
+    "status": 200,
+    "json": {
+      "status": "ok",
+      "server_time": "2026-09-14T21:00:09.421319+05:30",
+      "timezone": "Asia/Kolkata",
+      "reference_date": "2026-09-10T00:00:00+05:30"
+    }
+  },
+  {
+    "path": "/v1/listings/does-not-exist",
+    "method": "GET",
+    "status": 401,
+    "json": {
+      "detail": "unknown api key"
+    }
+  },
+  {
+    "path": "/v1/analytics",
+    "method": "GET",
+    "status": 404,
+    "json": {
+      "detail": "Not Found"
+    }
+  },
+  {
+    "path": "/v1/auth/login",
+    "method": "GET",
+    "status": 404,
+    "json": {
+      "detail": "Not Found"
+    }
+  },
+  {
+    "path": "/docs",
+    "method": "GET",
+    "status": 404,
+    "json": {
+      "detail": "Not Found"
+    }
+  },
+  {
+    "path": "/openapi.json",
+    "method": "GET",
+    "status": 404,
+    "json": {
+      "detail": "Not Found"
+    }
+  },
+  {
+    "path": "/v1/summary",
+    "method": "GET",
+    "status": 404,
+    "json": {
+      "detail": "Not Found"
+    }
+  }
+]

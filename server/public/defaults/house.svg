@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500">
+  <rect width="800" height="500" fill="#f3efe6"/>
+  <rect x="180" y="180" width="440" height="220" fill="#8b6b4a"/>
+  <polygon points="400,80 680,180 120,180" fill="#5c4033"/>
+  <rect x="360" y="280" width="80" height="120" fill="#2c1810"/>
+  <text x="400" y="40" text-anchor="middle" font-family="Georgia, serif" font-size="22" fill="#5c4033">Independent House</text>
+</svg>
