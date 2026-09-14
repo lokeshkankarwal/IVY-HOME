@@ -1,0 +1,289 @@
+{
+  "totalListingRecords": 4200,
+  "uniquePropertiesCount": 3826,
+  "duplicateGroupsCount": 357,
+  "totalDuplicateListings": 731,
+  "sampleDuplicateGroups": [
+    {
+      "propertyKey": "nitesh crest|kondapur|1|3",
+      "listings": [
+        {
+          "id": "ZER-2003858",
+          "website": "zerobroker",
+          "price": 7460000,
+          "carpet_area": 1169,
+          "facing": "north-west",
+          "coords": [
+            17.52344,
+            78.63078
+          ]
+        },
+        {
+          "id": "SQU-2002194",
+          "website": "squarelane",
+          "price": 7770000,
+          "carpet_area": 1167,
+          "facing": "north-west",
+          "coords": [
+            17.52329,
+            78.63058
+          ]
+        }
+      ]
+    },
+    {
+      "propertyKey": "my home heights|madhapur|7|3",
+      "listings": [
+        {
+          "id": "SQU-2001771",
+          "website": "squarelane",
+          "price": 13560000,
+          "carpet_area": 1171,
+          "facing": "east",
+          "coords": [
+            17.39138,
+            78.38388
+          ]
+        },
+        {
+          "id": "100-2003870",
+          "website": "100acres",
+          "price": 13500000,
+          "carpet_area": 1161,
+          "facing": "east",
+          "coords": [
+            17.39181,
+            78.3836
+          ]
+        }
+      ]
+    },
+    {
+      "propertyKey": "lodha grand|manikonda|10|3",
+      "listings": [
+        {
+          "id": "ZER-2004257",
+          "website": "zerobroker",
+          "price": 11080000,
+          "carpet_area": 1255,
+          "facing": "east",
+          "coords": [
+            17.51666,
+            78.46135
+          ]
+        },
+        {
+          "id": "MAG-2002907",
+          "website": "magichomes",
+          "price": 10910000,
+          "carpet_area": 1264,
+          "facing": "east",
+          "coords": [
+            17.51713,
+            78.4609
+          ]
+        }
+      ]
+    },
+    {
+      "propertyKey": "my home vista|madhapur|2|2",
+      "listings": [
+        {
+          "id": "ZER-2000516",
+          "website": "zerobroker",
+          "price": 10130000,
+          "carpet_area": 957,
+          "facing": "south-west",
+          "coords": [
+            17.4837,
+            78.44312
+          ]
+        },
+        {
+          "id": "SQU-2004250",
+          "website": "squarelane",
+          "price": 9810000,
+          "carpet_area": 948,
+          "facing": "south-west",
+          "coords": [
+            17.48385,
+            78.44356
+          ]
+        }
+      ]
+    },
+    {
+      "propertyKey": "century enclave|jubilee hills|2|2",
+      "listings": [
+        {
+          "id": "MAG-2000252",
+          "website": "magichomes",
+          "price": 8010000,
+          "carpet_area": 85,
+          "facing": "west",
+          "coords": [
+            17.43334,
+            78.43638
+          ]
+        },
+        {
+          "id": "MAG-2004216",
+          "website": "magichomes",
+          "price": 7920000,
+          "carpet_area": 84,
+          "facing": "west",
+          "coords": [
+            17.43286,
+            78.4367
+          ]
+        }
+      ]
+    },
+    {
+      "propertyKey": "century meadows|kompally|10|2",
+      "listings": [
+        {
+          "id": "ZER-2002033",
+          "website": "zerobroker",
+          "price": 5860000,
+          "carpet_area": 764,
+          "facing": "north-west",
+          "coords": [
+            17.50976,
+            78.46055
+          ]
+        },
+        {
+          "id": "ZER-2003528",
+          "website": "zerobroker",
+          "price": 5540000,
+          "carpet_area": 758,
+          "facing": "north-west",
+          "coords": [
+            17.5095,
+            78.46018
+          ]
+        }
+      ]
+    },
+    {
+      "propertyKey": "rohan sanctuary|miyapur|15|4",
+      "listings": [
+        {
+          "id": "DWE-2002738",
+          "website": "dwelling",
+          "price": 21110000,
+          "carpet_area": 1614,
+          "facing": "east",
+          "coords": [
+            17.53231,
+            78.53971
+          ]
+        },
+        {
+          "id": "100-2004233",
+          "website": "100acres",
+          "price": 20170000,
+          "carpet_area": 1607,
+          "facing": "east",
+          "coords": [
+            17.53203,
+            78.54018
+          ]
+        }
+      ]
+    },
+    {
+      "propertyKey": "prestige serenity|madhapur|0|2",
+      "listings": [
+        {
+          "id": "SQU-2003764",
+          "website": "squarelane",
+          "price": 10030000,
+          "carpet_area": 820,
+          "facing": "north-west",
+          "coords": [
+            17.3475,
+            78.51178
+          ]
+        },
+        {
+          "id": "100-2000192",
+          "website": "100acres",
+          "price": 10570000,
+          "carpet_area": 816,
+          "facing": "north-west",
+          "coords": [
+            17.34762,
+            78.51148
+          ]
+        }
+      ]
+    },
+    {
+      "propertyKey": "casagrand woods|jubilee hills|13|3",
+      "listings": [
+        {
+          "id": "ZER-2003575",
+          "website": "zerobroker",
+          "price": 13010000,
+          "carpet_area": 1184,
+          "facing": "east",
+          "coords": [
+            17.38331,
+            78.36178
+          ]
+        },
+        {
+          "id": "DWE-2000566",
+          "website": "dwelling",
+          "price": 12340000,
+          "carpet_area": 1186,
+          "facing": "east",
+          "coords": [
+            17.38371,
+            78.36155
+          ]
+        }
+      ]
+    },
+    {
+      "propertyKey": "rohan sanctuary|kondapur|8|3",
+      "listings": [
+        {
+          "id": "ZER-2003680",
+          "website": "zerobroker",
+          "price": 9790000,
+          "carpet_area": 1198,
+          "facing": "south-east",
+          "coords": [
+            17.50538,
+            78.52332
+          ]
+        },
+        {
+          "id": "DWE-2003148",
+          "website": "dwelling",
+          "price": 9960000,
+          "carpet_area": 1205,
+          "facing": "south-east",
+          "coords": [
+            17.505,
+            78.52317
+          ]
+        },
+        {
+          "id": "DWE-2004062",
+          "website": "dwelling",
+          "price": 10180000,
+          "carpet_area": 1194,
+          "facing": "south-east",
+          "coords": [
+            17.50535,
+            78.523
+          ]
+        }
+      ]
+    }
+  ]
+}

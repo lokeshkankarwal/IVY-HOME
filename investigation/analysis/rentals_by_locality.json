@@ -1,0 +1,42 @@
+{
+  "banjara hills": {
+    "count": 170,
+    "totalRent": 5903400
+  },
+  "kompally": {
+    "count": 141,
+    "totalRent": 4946400
+  },
+  "madhapur": {
+    "count": 160,
+    "totalRent": 5785700
+  },
+  "kondapur": {
+    "count": 145,
+    "totalRent": 4716100
+  },
+  "nallagandla": {
+    "count": 150,
+    "totalRent": 5323600
+  },
+  "jubilee hills": {
+    "count": 151,
+    "totalRent": 5657200
+  },
+  "miyapur": {
+    "count": 165,
+    "totalRent": 5748100
+  },
+  "kukatpally": {
+    "count": 186,
+    "totalRent": 6581800
+  },
+  "manikonda": {
+    "count": 184,
+    "totalRent": 6357600
+  },
+  "gachibowli": {
+    "count": 148,
+    "totalRent": 4854900
+  }
+}

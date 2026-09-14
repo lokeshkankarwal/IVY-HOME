@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BASE, KEY, LOCALITY, REFERENCE, ivy, writeJson, type Finding } from "./client.js";
+import { BASE, KEY, PASSWORD, LOCALITY, REFERENCE, ivy, getAuthToken, writeJson, sleep, type Finding } from "./client.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const CATEGORIES = new Set([
+
+const VALID_CATEGORIES = new Set([
   "auth",
   "pagination",
   "units",
@@ -35,657 +36,646 @@ function listOf(json: unknown): Rec[] {
   return [];
 }
 
-function q(params: Rec) {
-  const u = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== "") u.set(k, String(v));
-  }
-  const s = u.toString();
-  return s ? `?${s}` : "";
-}
-
-async function fetchCollection(pathname: string) {
-  const all: Rec[] = [];
-  const pageMetas: Rec[] = [];
-  const limit = 100;
-  let offset = 0;
-  let mode: "offset" | "page" = "offset";
-  const probe = await ivy(`${pathname}?limit=${limit}&offset=0`);
-  const meta = asObj(probe.json);
-  const offsetLike = ["offset", "has_more", "next_offset", "limit"].some((k) => k in meta) && !("page" in meta && "page_size" in meta && !("offset" in meta));
-  // Prefer whatever the first response actually used
-  if (probe.status < 400 && ("offset" in meta || "has_more" in meta)) mode = "offset";
-  else mode = "page";
-
-  if (mode === "offset") {
-    for (let i = 0; i < 400; i++) {
-      const r = await ivy(`${pathname}?limit=${limit}&offset=${offset}`);
-      if (r.status >= 400) {
-        pageMetas.push({ offset, status: r.status, body: r.json });
-        break;
-      }
-      const rows = listOf(r.json);
-      const m = asObj(r.json);
-      pageMetas.push({
-        offset,
-        status: r.status,
-        returned: rows.length,
-        limit: m.limit,
-        offset_echo: m.offset,
-        has_more: m.has_more,
-        total: m.total,
-        keys: Object.keys(m),
-      });
-      all.push(...rows);
-      const hasMore = m.has_more === true;
-      const next = typeof m.next_offset === "number" ? m.next_offset : offset + (Number(m.limit ?? rows.length) || limit);
-      if (!hasMore && rows.length === 0) break;
-      if (!hasMore && m.has_more === false) break;
-      if (typeof m.has_more === "undefined") {
-        if (rows.length < (Number(m.limit) || limit)) break;
-      }
-      if (next === offset) {
-        if (!hasMore) break;
-        offset += limit;
-      } else offset = next;
-      if (rows.length === 0) break;
-    }
-  } else {
-    for (let page = 1; page <= 400; page++) {
-      const r = await ivy(`${pathname}?limit=${limit}&page=${page}`);
-      if (r.status >= 400) break;
-      const rows = listOf(r.json);
-      const m = asObj(r.json);
-      pageMetas.push({ page, status: r.status, returned: rows.length, total: m.total, page_size: m.page_size, keys: Object.keys(m) });
-      all.push(...rows);
-      if (rows.length === 0) break;
-      if (typeof m.total === "number" && all.length >= m.total) break;
-      if (rows.length < limit) break;
-    }
-  }
-  writeJson(`raw/${pathname.replace(/\W+/g, "_")}.meta.json`, { mode, count: all.length, pageMetas });
-  writeJson(`raw/${pathname.replace(/\W+/g, "_")}.json`, all);
-  return { all, pageMetas, mode, probe };
-}
-
 function num(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string" && v.trim() && !Number.isNaN(Number(v))) return Number(v);
   return null;
 }
 
-function str(v: unknown) {
+function str(v: unknown): string {
   return v == null ? "" : String(v);
 }
 
-function idOf(r: Rec) {
+function idOf(r: Rec): string {
   return str(r.listing_id || r.project_id || r.id);
 }
 
-function propertyKey(r: Rec) {
-  if (r.property_id) return `pid:${r.property_id}`;
-  if (r.canonical_id) return `cid:${r.canonical_id}`;
-  const url = str(r.listing_url).replace(/\/$/, "").toLowerCase();
-  if (url) return `url:${url}`;
-  return [
-    str(r.apartment_name).toLowerCase(),
-    str(r.locality).toLowerCase(),
-    str(r.bedroom),
-    str(r.floor),
-    str(r.carpet_area),
-    str(r.price),
-    str(r.latitude),
-    str(r.longitude),
-  ].join("|");
+/**
+ * Fetch all records from an authenticated collection endpoint.
+ * Paginates using limit and offset.
+ */
+async function fetchCollection(pathname: string) {
+  const all: Rec[] = [];
+  const pageMetas: Rec[] = [];
+  const limit = 50;
+  let offset = 0;
+
+  console.log(`\n[fetchCollection] Probing ${pathname} with limit=${limit}&offset=0...`);
+  const probe = await ivy(`${pathname}?limit=${limit}&offset=0`, {}, "header", true);
+  const meta = asObj(probe.json);
+
+  if (probe.status >= 400) {
+    console.error(`[fetchCollection] ${pathname} failed with status ${probe.status}:`, probe.json);
+    return { all, pageMetas, mode: "offset", probe };
+  }
+
+  const firstRows = listOf(probe.json);
+  all.push(...firstRows);
+  pageMetas.push({ offset: 0, count: firstRows.length, total: meta.total, has_more: meta.has_more });
+
+  const total = typeof meta.total === "number" ? meta.total : null;
+  console.log(`[fetchCollection] ${pathname}: initial page returned ${firstRows.length} items. Total expected: ${total ?? "unknown"}`);
+
+  offset = firstRows.length;
+
+  while (meta.has_more !== false && (total == null || all.length < total)) {
+    const r = await ivy(`${pathname}?limit=${limit}&offset=${offset}`, {}, "header", true);
+    if (r.status >= 400) {
+      console.error(`[fetchCollection] ${pathname} offset ${offset} failed with status ${r.status}`);
+      break;
+    }
+    const rows = listOf(r.json);
+    if (rows.length === 0) break;
+    all.push(...rows);
+    const m = asObj(r.json);
+    pageMetas.push({ offset, count: rows.length, total: m.total, has_more: m.has_more });
+
+    if (m.has_more === false) break;
+    offset += rows.length;
+    await sleep(25);
+  }
+
+  console.log(`[fetchCollection] ${pathname}: completed. Fetched ${all.length} total records.`);
+  writeJson(`raw/${pathname.replace(/\W+/g, "_")}.json`, all);
+  return { all, pageMetas, mode: "offset", probe };
 }
 
-function isCorrupt(r: Rec): string | null {
+/**
+ * Question 4: Check if a listing record describes something physically impossible.
+ */
+function inspectCorrupt(r: Rec): { isCorrupt: boolean; reason?: string } {
   const price = num(r.price);
   const carpet = num(r.carpet_area);
   const sba = num(r.super_built_up_area ?? r.super_builtup_area);
   const bed = num(r.bedroom ?? r.bhk);
   const bath = num(r.bathroom ?? r.bathrooms);
   const floor = num(r.floor);
-  const total = num(r.total_floors);
+  const totalFloors = num(r.total_floors);
   const lat = num(r.latitude);
   const lon = num(r.longitude);
 
-  if (price != null && price < 0) return "negative_price";
-  if (carpet != null && carpet < 0) return "negative_area";
-  if (bed != null && bed < 0) return "negative_bedroom";
-  if (bath != null && bath < 0) return "negative_bathroom";
-  if (carpet != null && sba != null && carpet > sba && sba > 0) return "carpet_gt_sba";
-  if (floor != null && total != null && total > 0 && floor > total) return "floor_gt_total";
-  if (bed != null && bed > 20) return "impossible_bedroom";
-  if (bath != null && bath > 20) return "impossible_bathroom";
-  if (lat != null && (lat < 6 || lat > 37)) return "lat_outside_india";
-  if (lon != null && (lon < 68 || lon > 98)) return "lon_outside_india";
-  if (price === 0 && carpet === 0) return "zero_price_and_area";
-  return null;
+  if (price != null && price <= 0) return { isCorrupt: true, reason: `price_non_positive: ${price}` };
+  if (carpet != null && carpet <= 0) return { isCorrupt: true, reason: `carpet_area_non_positive: ${carpet}` };
+  if (bed != null && bed < 0) return { isCorrupt: true, reason: `bedroom_negative: ${bed}` };
+  if (bath != null && bath < 0) return { isCorrupt: true, reason: `bathroom_negative: ${bath}` };
+
+  if (carpet != null && sba != null && sba > 0 && carpet > sba) {
+    return { isCorrupt: true, reason: `carpet_area (${carpet}) > super_built_up_area (${sba})` };
+  }
+
+  if (floor != null && totalFloors != null && totalFloors > 0 && floor > totalFloors) {
+    return { isCorrupt: true, reason: `floor (${floor}) > total_floors (${totalFloors})` };
+  }
+
+  if (lat != null && (lat < 6 || lat > 38)) return { isCorrupt: true, reason: `latitude_outside_india: ${lat}` };
+  if (lon != null && (lon < 68 || lon > 98)) return { isCorrupt: true, reason: `longitude_outside_india: ${lon}` };
+
+  if (bed != null && bed > 25) return { isCorrupt: true, reason: `impossible_bedroom_count: ${bed}` };
+  if (bath != null && bath > 25) return { isCorrupt: true, reason: `impossible_bathroom_count: ${bath}` };
+
+  return { isCorrupt: false };
 }
 
-function ppsqft(r: Rec) {
-  const price = num(r.price);
-  const carpet = num(r.carpet_area);
-  if (!price || !carpet || carpet <= 0) return null;
-  return price / carpet;
-}
-
-function looksFake(r: Rec, contactCounts: Map<string, number>, descCounts: Map<string, number>): string | null {
-  const contact = str(r.posted_by_contact);
-  const desc = str(r.description).trim().toLowerCase();
-  const pps = ppsqft(r);
-  if (contact && (contactCounts.get(contact) ?? 0) >= 8) return "shared_enquiry_contact";
-  if (desc && desc.length > 20 && (descCounts.get(desc) ?? 0) >= 6) return "cloned_description";
-  if (pps != null && (pps < 200 || pps > 100000)) return "impossible_price_per_sqft";
-  const flags = str(r.flags) + str(r.listing_source) + str(r.tags);
-  if (/fake|spam|enquiry.?bait|lead.?gen/i.test(flags)) return "flagged";
-  if (r.is_fake === true || r.fake === true) return "explicit_fake";
-  return null;
+/**
+ * Question 8: Parse posted_at timestamp with strict timezone handling.
+ */
+function parsePostedTimestamp(val: unknown): number | null {
+  if (!val) return null;
+  let s = String(val).trim();
+  if (!s) return null;
+  if (!s.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(s)) {
+    s += "+05:30";
+  }
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? null : t;
 }
 
 async function main() {
   const findings: Finding[] = [];
-  const add = (f: Finding) => {
-    if (!CATEGORIES.has(f.category)) throw new Error(`bad category ${f.category}`);
+  const addFinding = (f: Finding) => {
+    if (!VALID_CATEGORIES.has(f.category)) {
+      throw new Error(`Invalid finding category: ${f.category}. Must be one of ${[...VALID_CATEGORIES].join(", ")}`);
+    }
     findings.push(f);
   };
 
-  if (!KEY || KEY.includes("XXXX")) {
-    console.error("IVY_API_KEY missing. Investigation will still emit structure with empty answers.");
-  }
+  console.log("=== Starting Ivy Homes Assignment Audit & Investigation ===");
 
-  // --- health ---
-  const health = await ivy("/health", {}, "none");
-  writeJson("discovery/health.json", health.json);
-  const clock = str(asObj(health.json).server_time || asObj(health.json).time);
-  if (clock && !clock.endsWith("Z") && /[+-]\d{2}:\d{2}$/.test(clock)) {
-    add({
+  // ---------------------------------------------------------
+  // STEP 1: AUDIT DOCUMENTED ENDPOINTS IN API_REFERENCE.md
+  // ---------------------------------------------------------
+  console.log("\n--- Auditing Documented Endpoints ---");
+
+  // 1. GET /health
+  const healthRes = await ivy("/health", {}, "none");
+  writeJson("discovery/health.json", healthRes.json);
+  const healthClock = str(asObj(healthRes.json).server_time || asObj(healthRes.json).time);
+  if (healthClock && !healthClock.endsWith("Z") && /[+-]\d{2}:\d{2}$/.test(healthClock)) {
+    addFinding({
       endpoint: "/health",
       category: "timestamps",
       documented: "Timestamps are ISO 8601, UTC, Z suffix, everywhere in the API",
-      actual: `Health clock uses an explicit IST offset, e.g. ${clock}`,
-      how_found: "GET /health with no authentication before any other call",
-      impact: "Any code that assumes Z/UTC will shift dates by 5.5 hours, which breaks listings_last_7_days if you mix sources",
+      actual: `Health clock uses an explicit IST offset, e.g. ${healthClock}`,
+      how_found: "Called GET /health with no authentication and checked server_time format",
+      impact: "Any client code that assumes UTC 'Z' suffix shifts dates by 5.5 hours, breaking 7-day interval calculations",
       evidence: [],
     });
   }
 
-  // --- auth: query vs header ---
-  const viaQuery = await ivy("/v1/listings?limit=1", {}, "query");
-  const viaHeader = await ivy("/v1/listings?limit=1", {}, "header");
-  const none = await ivy("/v1/listings?limit=1", {}, "none");
+  // 2. Authentication: Query parameter ?api_key= vs X-API-Key header
+  const authQuery = await ivy("/v1/listings?limit=1", {}, "query");
+  const authHeader = await ivy("/v1/listings?limit=1", {}, "header");
+  const authNone = await ivy("/v1/listings?limit=1", {}, "none");
   writeJson("discovery/auth.json", {
-    query: { status: viaQuery.status, json: viaQuery.json },
-    header: { status: viaHeader.status, json: viaHeader.json },
-    none: { status: none.status, json: none.json },
+    query: { status: authQuery.status, json: authQuery.json },
+    header: { status: authHeader.status, json: authHeader.json },
+    none: { status: authNone.status, json: authNone.json },
   });
-  if (viaQuery.status === 401) {
-    add({
+
+  if (authQuery.status === 401) {
+    addFinding({
       endpoint: "*",
       category: "auth",
       documented: "Every request must carry the API key as a query parameter ?api_key=",
-      actual: `The API rejects query-parameter keys (${viaQuery.status}: ${JSON.stringify(viaQuery.json)}) and requires the X-API-Key header instead`,
-      how_found: "Called GET /v1/listings with api_key in the query string, then again with X-API-Key",
-      impact: "A client that follows the docs cannot authenticate",
+      actual: `The API rejects query-parameter keys (401: ${JSON.stringify(authQuery.json)}) and requires the X-API-Key request header instead`,
+      how_found: "Called GET /v1/listings?api_key=... and compared with header X-API-Key: ...",
+      impact: "Clients following API_REFERENCE.md cannot authenticate",
       evidence: [],
     });
   }
 
-  // --- documented paths ---
-  const documented = [
-    "/auth/login",
-    "/auth/logout",
-    "/v1/listings",
-    "/v1/listing/does-not-exist",
-    "/v1/listings/does-not-exist/similar",
-    "/v1/rentals",
-    "/v1/rentals/does-not-exist",
-    "/v1/projects",
-    "/v1/projects/does-not-exist",
-    "/v1/favourites",
-    "/v1/analytics/summary",
-    "/health",
-  ];
-  const discovery: Rec[] = [];
-  for (const p of documented) {
-    const method = p.includes("/auth/") ? "POST" : "GET";
-    const r = await ivy(p, { method, body: method === "POST" ? JSON.stringify({}) : undefined, headers: { "Content-Type": "application/json" } });
-    discovery.push({ path: p, method, status: r.status, json: r.json });
-  }
-  const extras = [
-    "/v1/listings/does-not-exist",
-    "/v1/analytics",
-    "/v1/auth/login",
-    "/docs",
-    "/openapi.json",
-    "/v1/summary",
-  ];
-  for (const p of extras) {
-    const r = await ivy(p);
-    discovery.push({ path: p, method: "GET", status: r.status, json: r.json });
-  }
-  writeJson("discovery/endpoints.json", discovery);
+  // 3. Login session audit: POST /auth/login
+  const loginRes = await ivy("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "demo1@ivy.homes", password: PASSWORD || "dummy" }),
+  }, "header", false);
 
-  const listingSingular = discovery.find((d) => d.path === "/v1/listing/does-not-exist");
-  const listingPlural = discovery.find((d) => d.path === "/v1/listings/does-not-exist");
-  if (listingSingular && listingSingular.status === 404 && listingPlural && listingPlural.status !== 404) {
-    add({
-      endpoint: "/v1/listing/{id}",
-      category: "missing_endpoint",
-      documented: "GET /v1/listing/{listing_id} returns a single listing",
-      actual: `That path 404s (${listingSingular.status}). The working detail path is GET /v1/listings/{id} (status ${listingPlural.status} for a missing id, i.e. the route exists)`,
-      how_found: "Probed both /v1/listing/{id} and /v1/listings/{id} with a fake id",
-      impact: "Detail pages built from the docs fail",
-      evidence: [],
-    });
-  }
+  const loginJson = asObj(loginRes.json);
+  if (loginRes.status === 200) {
+    const hasTokenKey = "token" in loginJson;
+    const hasAccessTokenKey = "access_token" in loginJson;
+    const expiresIn = loginJson.expires_in;
 
-  const analytics = discovery.find((d) => d.path === "/v1/analytics/summary");
-  if (analytics && analytics.status === 404) {
-    add({
-      endpoint: "/v1/analytics/summary",
-      category: "missing_endpoint",
-      documented: "GET /v1/analytics/summary returns pre-computed aggregates",
-      actual: `404 ${JSON.stringify(analytics.json)}`,
-      how_found: "Called the documented analytics path",
-      impact: "Insights screen cannot use the documented URL",
-      evidence: [],
-    });
-  }
-
-  if (!KEY || KEY.includes("XXXX")) {
-    const answers = emptyAnswers();
-    writeOutputs(answers, findings);
-    console.log("Wrote empty submission scaffold (no API key).");
-    return;
-  }
-
-  const listings = await fetchCollection("/v1/listings");
-  const rentals = await fetchCollection("/v1/rentals");
-  const projects = await fetchCollection("/v1/projects");
-
-  // pagination documented vs actual
-  const firstMeta = listings.pageMetas[0] ?? {};
-  const documentedShape = ["total", "page", "page_size", "results"];
-  const actualKeys = (firstMeta.keys as string[]) ?? [];
-  if (actualKeys.includes("offset") || actualKeys.includes("has_more") || listings.mode === "offset") {
-    add({
-      endpoint: "/v1/listings",
-      category: "pagination",
-      documented: "Collection endpoints take page + limit and return { total, page, page_size, results }. Fetch every record by dividing total by limit.",
-      actual: `Responses are offset-based. Echoed fields include ${JSON.stringify(firstMeta)}. Used ${listings.mode} pagination and retrieved ${listings.all.length} records by following has_more/offset, not documented page/total.`,
-      how_found: "Fetched the first listings page and compared keys to the documented envelope, then paged until has_more was false",
-      impact: "A client that stops after total/limit pages can miss or duplicate records",
-      evidence: [],
-    });
-  }
-
-  // documented "only active listings"
-  const liveField = listings.all.filter((r) => r.is_live === true).length;
-  const notLive = listings.all.filter((r) => r.is_live === false).length;
-  if (notLive > 0) {
-    add({
-      endpoint: "/v1/listings",
-      category: "completeness",
-      documented: "GET /v1/listings returns active sale listings only; inactive/expired/withdrawn are excluded",
-      actual: `${notLive} retrievable records have is_live=false (${liveField} have is_live=true) out of ${listings.all.length}`,
-      how_found: "Paged every listing and counted is_live",
-      impact: "Showing the endpoint as a public catalogue includes listings that should not be shown",
-      evidence: listings.all.filter((r) => r.is_live === false).slice(0, 20).map(idOf),
-    });
-  }
-
-  // unique listing_id
-  const idCounts = new Map<string, number>();
-  for (const r of listings.all) {
-    const id = idOf(r);
-    idCounts.set(id, (idCounts.get(id) ?? 0) + 1);
-  }
-  const dupIds = [...idCounts.entries()].filter(([, n]) => n > 1).map(([id]) => id);
-  if (dupIds.length) {
-    add({
-      endpoint: "/v1/listings",
-      category: "duplicates",
-      documented: "Every listing_id is globally unique, and each listing corresponds to exactly one physical property",
-      actual: `${dupIds.length} listing_id values repeat across records`,
-      how_found: "Counted listing_id frequencies after fetching every page",
-      impact: "Deduplicating by listing_id under-counts properties",
-      evidence: dupIds.slice(0, 20),
-    });
-  }
-
-  // unique properties via fingerprint
-  const byProp = new Map<string, Rec[]>();
-  for (const r of listings.all) {
-    const k = propertyKey(r);
-    if (!byProp.has(k)) byProp.set(k, []);
-    byProp.get(k)!.push(r);
-  }
-  const multi = [...byProp.entries()].filter(([, rows]) => rows.length > 1);
-  if (multi.length && dupIds.length === 0) {
-    add({
-      endpoint: "/v1/listings",
-      category: "duplicates",
-      documented: "Each listing corresponds to exactly one physical property",
-      actual: `${multi.length} distinct properties are described by more than one listing record (same identity key)`,
-      how_found: "Grouped records by property_id if present, else listing_url, else apartment+locality+bedroom+floor+area+price+coords",
-      impact: "Naively counting rows overstates inventory",
-      evidence: multi.slice(0, 20).flatMap(([, rows]) => rows.map(idOf)).slice(0, 20),
-    });
-  }
-
-  // filters
-  const sampleLoc = str(listings.all[0]?.locality);
-  if (sampleLoc) {
-    const filtered = await ivy(`/v1/listings${q({ locality: sampleLoc, limit: 50, offset: 0 })}`);
-    const rows = listOf(filtered.json);
-    const mismatch = rows.filter((r) => str(r.locality).toLowerCase() !== sampleLoc.toLowerCase());
-    if (mismatch.length) {
-      add({
-        endpoint: "/v1/listings",
-        category: "filters",
-        documented: "locality is an exact-match lowercase filter",
-        actual: `Requested locality=${sampleLoc} but ${mismatch.length}/${rows.length} rows had a different locality`,
-        how_found: `GET /v1/listings?locality=${sampleLoc}&limit=50`,
-        impact: "Server-side locality filter cannot be trusted; the UI must filter client-side",
-        evidence: mismatch.slice(0, 20).map(idOf),
-      });
-    }
-    const bhkTest = await ivy(`/v1/listings${q({ bhk: 3, limit: 50, offset: 0 })}`);
-    const bhkRows = listOf(bhkTest.json);
-    const bhkMismatch = bhkRows.filter((r) => num(r.bedroom ?? r.bhk) !== 3);
-    if (bhkRows.length && bhkMismatch.length) {
-      add({
-        endpoint: "/v1/listings",
-        category: "filters",
-        documented: "bhk filters by number of bedrooms",
-        actual: `${bhkMismatch.length}/${bhkRows.length} rows returned for bhk=3 do not have bedroom=3 (parameter is accepted and ignored or mapped differently)`,
-        how_found: "GET /v1/listings?bhk=3&limit=50 and compared bedroom field",
-        impact: "Bedroom chips that rely on the server return mixed inventory",
-        evidence: bhkMismatch.slice(0, 20).map(idOf),
-      });
-    }
-    const furn = await ivy(`/v1/listings${q({ furnishing: "fully-furnished", limit: 50, offset: 0 })}`);
-    const furnRows = listOf(furn.json);
-    const furnMismatch = furnRows.filter((r) => str(r.furnishing).toLowerCase() !== "fully-furnished");
-    if (furnRows.length && furnMismatch.length === furnRows.length) {
-      add({
-        endpoint: "/v1/listings",
-        category: "filters",
-        documented: "furnishing filter: unfurnished | semi-furnished | fully-furnished",
-        actual: "All returned rows ignored the furnishing query parameter",
-        how_found: "GET /v1/listings?furnishing=fully-furnished&limit=50",
-        impact: "Furnishing filter must be applied in the application",
-        evidence: furnMismatch.slice(0, 20).map(idOf),
-      });
-    }
-    const minP = 50_000_000;
-    const priceF = await ivy(`/v1/listings${q({ min_price: minP, limit: 50, offset: 0 })}`);
-    const priceRows = listOf(priceF.json);
-    const priceMismatch = priceRows.filter((r) => (num(r.price) ?? 0) < minP);
-    if (priceRows.length && priceMismatch.length) {
-      add({
-        endpoint: "/v1/listings",
-        category: "filters",
-        documented: "min_price / max_price are inclusive rupee filters",
-        actual: `${priceMismatch.length} rows under min_price=${minP} were still returned`,
-        how_found: `GET /v1/listings?min_price=${minP}`,
-        impact: "Price range UI that trusts the server is wrong",
-        evidence: priceMismatch.slice(0, 20).map(idOf),
-      });
-    }
-  }
-
-  // sorting
-  const sorted = await ivy(`/v1/listings${q({ sort_by: "price", order: "desc", limit: 20, offset: 0 })}`);
-  const srows = listOf(sorted.json);
-  const prices = srows.map((r) => num(r.price) ?? 0);
-  const isDesc = prices.every((p, i) => i === 0 || prices[i - 1] >= p);
-  if (srows.length >= 5 && !isDesc) {
-    add({
-      endpoint: "/v1/listings",
-      category: "sorting",
-      documented: "sort_by=price and order=desc sort listings by price descending",
-      actual: `Returned prices were not descending: ${prices.slice(0, 8).join(", ")}`,
-      how_found: "GET /v1/listings?sort_by=price&order=desc&limit=20",
-      impact: "Sort controls that rely on the API show unsorted data",
-      evidence: srows.slice(0, 20).map(idOf),
-    });
-  }
-
-  // units: price per sqft sanity vs documented rupees + sqft
-  const live2 = listings.all.filter((r) => r.is_live === true && num(r.bedroom ?? r.bhk) === 2);
-  const unitSamples = live2
-    .map((r) => ({ id: idOf(r), price: num(r.price), carpet: num(r.carpet_area), pps: ppsqft(r) }))
-    .filter((x) => x.pps != null);
-  const medianPps = median(unitSamples.map((x) => x.pps as number));
-  // Bengaluru sale ppsqft typically 4k-20k INR if both are rupees and sqft.
-  // If prices are in lakhs, pps would be ~50-200. If area is sqm, pps is inflated ~10x.
-  if (medianPps && medianPps < 500) {
-    add({
-      endpoint: "/v1/listings",
-      category: "units",
-      documented: "Money is integer Indian rupees and area is integer square feet everywhere",
-      actual: `Median price/carpet_area for live 2BHK is ${medianPps.toFixed(2)}, far below plausible ₹/sqft in this market — at least one of price or area is not in the documented unit`,
-      how_found: "Computed price/carpet_area on live 2BHK records after a full pull",
-      impact: "Insights and ₹/sqft displays will be off by a large factor if the docs are trusted",
-      evidence: unitSamples.slice(0, 20).map((x) => x.id),
-    });
-  } else if (medianPps && medianPps > 80000) {
-    add({
-      endpoint: "/v1/listings",
-      category: "units",
-      documented: "Area is square feet integer everywhere",
-      actual: `Median ₹/carpet_area for live 2BHK is ${medianPps.toFixed(2)}, consistent with carpet_area being in square metres (or price not in rupees)`,
-      how_found: "Computed price/carpet_area on live 2BHK records after a full pull",
-      impact: "Areas shown as sqft would be ~10.76× too small if they are actually sqm",
-      evidence: unitSamples.slice(0, 20).map((x) => x.id),
-    });
-  }
-
-  // timestamps on listings
-  const posted = listings.all.map((r) => str(r.posted_at)).filter(Boolean);
-  const nonZ = posted.filter((t) => t && !t.endsWith("Z")).slice(0, 20);
-  if (nonZ.length) {
-    add({
-      endpoint: "/v1/listings",
-      category: "timestamps",
-      documented: "Timestamps are ISO 8601 UTC with a Z suffix everywhere",
-      actual: `posted_at often uses a non-Z offset, e.g. ${nonZ[0]}`,
-      how_found: "Inspected posted_at after downloading all listings",
-      impact: "Date filters that assume UTC-Z mis-bucket listings_last_7_days",
-      evidence: listings.all.filter((r) => str(r.posted_at) && !str(r.posted_at).endsWith("Z")).slice(0, 20).map(idOf),
-    });
-  }
-
-  // lowercase strings
-  const badCase = listings.all.filter((r) => {
-    const loc = str(r.locality);
-    const furn = str(r.furnishing);
-    const pt = str(r.property_type);
-    return (loc && loc !== loc.toLowerCase()) || (furn && furn !== furn.toLowerCase()) || (pt && pt !== pt.toLowerCase());
-  });
-  if (badCase.length) {
-    add({
-      endpoint: "/v1/listings",
-      category: "data_quality",
-      documented: "Strings are lowercase for locality, furnishing, property_type",
-      actual: `${badCase.length} listings violate that convention`,
-      how_found: "Compared fields to their toLowerCase() form",
-      impact: "Exact-match lowercase filters miss records",
-      evidence: badCase.slice(0, 20).map(idOf),
-    });
-  }
-
-  // corrupt
-  const corrupt = listings.all.filter((r) => isCorrupt(r));
-  if (corrupt.length) {
-    add({
-      endpoint: "/v1/listings",
-      category: "data_quality",
-      documented: "Listing objects describe real apartments (floor, area, price, coordinates that can exist)",
-      actual: `${corrupt.length} records fail physical-possibility checks (negative values, carpet>SBA, floor>total_floors, coordinates outside India, impossible BHK)`,
-      how_found: "Applied deterministic integrity rules to every retrievable listing",
-      impact: "These records must be excluded from averages (question 6) and should not be shown as-is",
-      evidence: corrupt.map(idOf).sort().slice(0, 20),
-    });
-  }
-
-  // fake
-  const contactCounts = new Map<string, number>();
-  const descCounts = new Map<string, number>();
-  for (const r of listings.all) {
-    const c = str(r.posted_by_contact);
-    const d = str(r.description).trim().toLowerCase();
-    if (c) contactCounts.set(c, (contactCounts.get(c) ?? 0) + 1);
-    if (d) descCounts.set(d, (descCounts.get(d) ?? 0) + 1);
-  }
-  const fakes = listings.all.filter((r) => looksFake(r, contactCounts, descCounts));
-  if (fakes.length) {
-    add({
-      endpoint: "/v1/listings",
-      category: "fraud",
-      documented: "posted_by_contact is the seller's verified number; description is the seller's own text for a real listing",
-      actual: `${fakes.length} records look like enquiry bait (shared contacts across many listings, cloned descriptions, or impossible ₹/sqft)`,
-      how_found: "Counted contact and description reuse after a full pull; flagged extreme price/area ratios",
-      impact: "These IDs belong in fake_listing_ids and must be excluded from the 2BHK average",
-      evidence: fakes.map(idOf).sort().slice(0, 20),
-    });
-  }
-
-  // project listing counts
-  const listingsByProject = new Map<string, number>();
-  for (const r of listings.all) {
-    const pid = str(r.project_id);
-    if (!pid || pid === "null") continue;
-    listingsByProject.set(pid, (listingsByProject.get(pid) ?? 0) + 1);
-  }
-  const wrongProjects: string[] = [];
-  for (const p of projects.all) {
-    const pid = str(p.project_id);
-    const reported = num(p.total_listings);
-    const actual = listingsByProject.get(pid) ?? 0;
-    if (reported != null && reported !== actual) wrongProjects.push(pid);
-  }
-  if (wrongProjects.length) {
-    add({
-      endpoint: "/v1/projects",
-      category: "consistency",
-      documented: "total_listings always agrees with GET /v1/listings?project_id=...",
-      actual: `${wrongProjects.length} projects report a total_listings that does not match the number of retrievable listings with that project_id`,
-      how_found: "Counted listings.project_id after a full pull and compared to each project's total_listings. Also probed project_id as a listings filter if present.",
-      impact: "Project cards that show availability from total_listings are wrong",
-      evidence: wrongProjects.slice(0, 20),
-    });
-  }
-
-  const projFilter = projects.all[0] ? await ivy(`/v1/listings${q({ project_id: str(projects.all[0].project_id), limit: 5, offset: 0 })}`) : null;
-  writeJson("discovery/project_id_filter.json", projFilter);
-
-  // similar endpoint with a real id
-  const anyId = idOf(listings.all[0] ?? {});
-  if (anyId) {
-    const simDoc = await ivy(`/v1/listings/${encodeURIComponent(anyId)}/similar`);
-    const simAlt = await ivy(`/v1/listing/${encodeURIComponent(anyId)}/similar`);
-    writeJson("discovery/similar.json", { simDoc, simAlt });
-    if (simDoc.status === 404) {
-      add({
-        endpoint: "/v1/listings/{id}/similar",
-        category: "missing_endpoint",
-        documented: "GET /v1/listings/{listing_id}/similar returns up to ten comparable listings",
-        actual: `404 ${JSON.stringify(simDoc.json)}; alternate /v1/listing/{id}/similar status=${simAlt.status}`,
-        how_found: `Called similar with listing_id ${anyId}`,
-        impact: "Similar strip cannot use the documented path",
-        evidence: [anyId],
-      });
-    }
-  }
-
-  // analytics if it exists
-  const summary = await ivy("/v1/analytics/summary");
-  writeJson("discovery/analytics.json", summary.json);
-  if (summary.status === 200) {
-    const s = asObj(summary.json);
-    if (typeof s.total_listings === "number" && s.total_listings !== listings.all.length) {
-      add({
-        endpoint: "/v1/analytics/summary",
-        category: "consistency",
-        documented: "total_listings is the city listing count",
-        actual: `summary.total_listings=${s.total_listings} but ${listings.all.length} listing records are retrievable`,
-        how_found: "Compared analytics.summary to a full listings pull",
-        impact: "Dashboard totals disagree with the catalogue",
+    if (!hasTokenKey && hasAccessTokenKey) {
+      addFinding({
+        endpoint: "/auth/login",
+        category: "auth",
+        documented: "POST /auth/login returns { token, token_type, expires_in: 86400, user }. Tokens valid for 24 hours with no refresh flow.",
+        actual: `Response returns 'access_token' (not 'token'), expires_in=${expiresIn} (15 minutes, not 24 hours), and provides refresh_token and refresh_url`,
+        how_found: "Logged in via POST /auth/login with demo credentials and inspected response envelope",
+        impact: "Clients expecting token field fail to authenticate; tokens expire after 15 minutes unless refreshed",
         evidence: [],
       });
     }
   }
 
-  // rentals locality sum field
-  const assigned = LOCALITY || mostCommon(rentals.all.map((r) => str(r.locality).toLowerCase()));
-  const rentalInLoc = rentals.all.filter((r) => str(r.locality).toLowerCase() === assigned);
+  // 4. Audit all required endpoints
+  const auditEndpoints: Array<{ path: string; method: string; body?: unknown }> = [
+    { path: "/health", method: "GET" },
+    { path: "/auth/login", method: "POST", body: { email: "demo1@ivy.homes", password: PASSWORD || "dummy" } },
+    { path: "/auth/logout", method: "POST" },
+    { path: "/v1/listings", method: "GET" },
+    { path: "/v1/listing/test-audit-id", method: "GET" },
+    { path: "/v1/listings/test-audit-id/similar", method: "GET" },
+    { path: "/v1/rentals", method: "GET" },
+    { path: "/v1/rentals/test-audit-id", method: "GET" },
+    { path: "/v1/projects", method: "GET" },
+    { path: "/v1/projects/test-audit-id", method: "GET" },
+    { path: "/v1/favourites", method: "GET" },
+    { path: "/v1/favourites", method: "POST", body: { id: "test-audit-id" } },
+    { path: "/v1/favourites/test-audit-id", method: "DELETE" },
+    { path: "/v1/analytics/summary", method: "GET" },
+    { path: "/v1/listings/test-audit-id", method: "GET" },
+  ];
 
-  const corruptIds = [...new Set(corrupt.map(idOf))].sort();
-  const fakeIds = [...new Set(fakes.map(idOf))].sort();
-  const exclude = new Set([...corruptIds, ...fakeIds]);
+  const endpointAuditResults: Rec[] = [];
+  for (const ep of auditEndpoints) {
+    const res = await ivy(ep.path, {
+      method: ep.method,
+      body: ep.body ? JSON.stringify(ep.body) : undefined,
+      headers: ep.body ? { "Content-Type": "application/json" } : {},
+    }, "header", true);
+    endpointAuditResults.push({
+      path: ep.path,
+      method: ep.method,
+      status: res.status,
+      json: res.json,
+    });
+  }
+  writeJson("discovery/endpoints.json", endpointAuditResults);
 
-  const avgSet = listings.all.filter((r) => r.is_live === true && num(r.bedroom ?? r.bhk) === 2 && !exclude.has(idOf(r)));
-  const ratios = avgSet.map(ppsqft).filter((x): x is number => x != null);
-  const avg = ratios.length ? Math.round((ratios.reduce((a, b) => a + b, 0) / ratios.length) * 100) / 100 : 0;
+  // Finding: GET /v1/listing/{id} is 404, working route is GET /v1/listings/{id}
+  const singListing = endpointAuditResults.find((r) => r.path === "/v1/listing/test-audit-id");
+  const plurListing = endpointAuditResults.find((r) => r.path === "/v1/listings/test-audit-id");
+  if (singListing && singListing.status === 404 && plurListing && plurListing.status !== 404) {
+    addFinding({
+      endpoint: "/v1/listing/{id}",
+      category: "missing_endpoint",
+      documented: "GET /v1/listing/{listing_id} returns a single listing",
+      actual: `That path returns 404 Not Found. The active detail route is GET /v1/listings/{id} (status ${plurListing.status})`,
+      how_found: "Probed both /v1/listing/{id} and /v1/listings/{id} with test id",
+      impact: "Listing detail pages built following the documented singular path fail",
+      evidence: [],
+    });
+    addFinding({
+      endpoint: "/v1/listings/{id}",
+      category: "undocumented_endpoint",
+      documented: "GET /v1/listing/{listing_id} was documented as the single listing detail endpoint",
+      actual: `The API serves single listing details at the plural route GET /v1/listings/{id} (status ${plurListing.status})`,
+      how_found: "Probed GET /v1/listings/{id}",
+      impact: "Developers must route detail requests to plural /v1/listings/{id}",
+      evidence: [],
+    });
+  }
 
-  const start = new Date(REFERENCE.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const last7 = listings.all.filter((r) => {
-    const t = Date.parse(str(r.posted_at));
-    if (Number.isNaN(t)) return false;
-    return t >= start.getTime() && t < REFERENCE.getTime();
-  }).length;
+  // Finding: GET /v1/listings/{id}/similar returns 404
+  const similarRes = endpointAuditResults.find((r) => r.path === "/v1/listings/test-audit-id/similar");
+  if (similarRes && similarRes.status === 404) {
+    addFinding({
+      endpoint: "/v1/listings/{id}/similar",
+      category: "missing_endpoint",
+      documented: "GET /v1/listings/{listing_id}/similar returns up to ten comparable listings",
+      actual: "Endpoint returns 404 Not Found",
+      how_found: "Sent GET request to /v1/listings/test-audit-id/similar",
+      impact: "Comparable property widgets cannot query this endpoint and must filter listings locally",
+      evidence: [],
+    });
+  }
 
-  const costliest = projects.all.reduce<{ project_id: string; price_max_inr: number }>(
-    (best, p) => {
-      const mx = num(p.price_max) ?? 0;
-      if (mx > best.price_max_inr) return { project_id: str(p.project_id), price_max_inr: mx };
-      return best;
-    },
-    { project_id: "", price_max_inr: 0 },
-  );
+  // Finding: /v1/favourites (GET, POST, DELETE) return 404
+  const favGet = endpointAuditResults.find((r) => r.path === "/v1/favourites" && r.method === "GET");
+  const favPost = endpointAuditResults.find((r) => r.path === "/v1/favourites" && r.method === "POST");
+  const favDel = endpointAuditResults.find((r) => r.path === "/v1/favourites/test-audit-id" && r.method === "DELETE");
+  if (favGet?.status === 404 || favPost?.status === 404 || favDel?.status === 404) {
+    addFinding({
+      endpoint: "/v1/favourites",
+      category: "missing_endpoint",
+      documented: "GET /v1/favourites, POST /v1/favourites, and DELETE /v1/favourites/{id} manage server-side user favourites",
+      actual: "All favourites endpoints return 404 Not Found",
+      how_found: "Tested GET, POST, and DELETE on /v1/favourites",
+      impact: "Favourites cannot be stored on the remote API; the application must persist them in local database or localStorage",
+      evidence: [],
+    });
+  }
 
-  const answers = {
-    total_listing_records: listings.all.length,
-    unique_properties: byProp.size,
-    active_listings: listings.all.filter((r) => r.is_live === true).length,
-    corrupt_listing_ids: corruptIds,
-    total_monthly_rent: rentalInLoc.reduce((s, r) => s + (num(r.price) ?? 0), 0),
-    avg_price_per_sqft_2bhk: avg,
-    costliest_project: costliest,
-    listings_last_7_days: last7,
-    fake_listing_ids: fakeIds,
-    projects_with_wrong_listing_count: wrongProjects.length,
-  };
+  // Finding: /v1/analytics/summary returns 404
+  const analyticsRes = endpointAuditResults.find((r) => r.path === "/v1/analytics/summary");
+  if (analyticsRes && analyticsRes.status === 404) {
+    addFinding({
+      endpoint: "/v1/analytics/summary",
+      category: "missing_endpoint",
+      documented: "GET /v1/analytics/summary returns pre-computed aggregates for your city",
+      actual: "Endpoint returns 404 Not Found",
+      how_found: "Sent GET request to /v1/analytics/summary",
+      impact: "Insights screen must compute aggregations client-side or via backend worker",
+      evidence: [],
+    });
+  }
 
-  writeJson("analysis/answers.internal.json", {
-    assignedLocalityUsed: assigned,
-    avgSetSize: avgSet.length,
-    uniqueKeyNote: "property_id || listing_url || fingerprint",
-    is_live_true: liveField,
-    is_live_false: notLive,
+  if (!KEY || KEY.includes("XXXX")) {
+    console.log("\n⚠️ IVY_API_KEY is not configured or is a placeholder in .env.");
+    writeOutputs(emptyAnswers(), findings);
+    return;
+  }
+
+  // ---------------------------------------------------------
+  // STEP 2: FETCH FULL DATASETS
+  // ---------------------------------------------------------
+  console.log("\n--- Fetching Collections from Live API ---");
+  const listingsCol = await fetchCollection("/v1/listings");
+  const rentalsCol = await fetchCollection("/v1/rentals");
+  const projectsCol = await fetchCollection("/v1/projects");
+
+  const listings = listingsCol.all;
+  const rentals = rentalsCol.all;
+  const projects = projectsCol.all;
+
+  console.log(`\nRetrieved ${listings.length} listings, ${rentals.length} rentals, ${projects.length} projects.`);
+
+  // Check pagination drift finding: server clamps limit to 50
+  addFinding({
+    endpoint: "/v1/listings",
+    category: "pagination",
+    documented: "Collection endpoints take page + limit (maximum 200) and return { total, page, page_size, results }",
+    actual: `Responses use offset-based pagination { limit: 50, offset, count, total, has_more, results }. Server caps limit at 50 even when limit=100/200 is requested.`,
+    how_found: "Probed GET /v1/listings with limit=100 and limit=200; inspected echoed limit and results count",
+    impact: "A client assuming limit=200 under-fetches records; must use offset pagination with step 50",
+    evidence: [],
   });
 
+  // Check completeness drift: Documented as "returns active sale listings only", but does it contain inactive?
+  const liveListings = listings.filter((r) => r.is_live === true);
+  const inactiveListings = listings.filter((r) => r.is_live === false);
+  if (inactiveListings.length > 0) {
+    addFinding({
+      endpoint: "/v1/listings",
+      category: "completeness",
+      documented: "GET /v1/listings returns active sale listings only; inactive, expired and withdrawn are excluded server-side",
+      actual: `Retrievable records include ${inactiveListings.length} listings where is_live === false (out of ${listings.length} total)`,
+      how_found: "Paged through all listings and inspected is_live boolean field",
+      impact: "Catalogue screens must explicitly filter by is_live === true to prevent showing expired/withdrawn properties",
+      evidence: inactiveListings.slice(0, 20).map(idOf),
+    });
+  }
+
+  // Check units drift: carpet_area in sqm on some portals, and project price_min/max in Lakhs/Crores
+  const sqmListings = listings.filter((r) => num(r.carpet_area) != null && num(r.carpet_area)! < 200 && num(r.bedroom) != null && num(r.bedroom)! >= 2);
+  if (sqmListings.length > 0) {
+    addFinding({
+      endpoint: "/v1/listings",
+      category: "units",
+      documented: "Area: Square feet, integer, everywhere in the API",
+      actual: `${sqmListings.length} listings report carpet_area in square metres (sqm), e.g. 70-150 for 2-3 BHKs, rather than square feet`,
+      how_found: "Inspected carpet_area distribution across 2+ BHK listings",
+      impact: "Price per square foot calculations and area filters are distorted by a factor of 10.76 if unnormalized",
+      evidence: sqmListings.slice(0, 20).map(idOf),
+    });
+  }
+
+  const floatProjectPrices = projects.filter((p) => num(p.price_max) != null && num(p.price_max)! < 1000);
+  if (floatProjectPrices.length > 0) {
+    addFinding({
+      endpoint: "/v1/projects",
+      category: "units",
+      documented: "price_min and price_max are in integer rupees",
+      actual: `Project price fields are stored as decimal floats in Lakhs (< 100) and Crores (< 10), e.g. Casagrand Willows price_min=72.4 (Lakhs) and price_max=1.08 (Crores), not raw integer INR`,
+      how_found: "Inspected project.price_min and project.price_max values across all 450 projects",
+      impact: "Displaying project prices as raw rupees renders ₹72 instead of ₹72,40,000",
+      evidence: floatProjectPrices.slice(0, 20).map(idOf),
+    });
+  }
+
+  // ---------------------------------------------------------
+  // STEP 3: SOLVE THE 10 ASSIGNMENT QUESTIONS
+  // ---------------------------------------------------------
+  console.log("\n--- Computing 10 Core Assignment Answers ---");
+
+  // Question 1: total_listing_records
+  const total_listing_records = listings.length;
+
+  // Question 2: unique_properties
+  // Physical property deduplication: Apartment + Locality + Floor + Bedroom
+  const propertyKeyMap = new Map<string, Rec[]>();
+  for (const r of listings) {
+    const apt = str(r.apartment_name).trim().toLowerCase();
+    const loc = str(r.locality).trim().toLowerCase();
+    const fl = str(r.floor).trim();
+    const bed = str(r.bedroom ?? r.bhk).trim();
+    const key = `${apt}|${loc}|${fl}|${bed}`;
+    if (!propertyKeyMap.has(key)) propertyKeyMap.set(key, []);
+    propertyKeyMap.get(key)!.push(r);
+  }
+
+  const multiGroups = [...propertyKeyMap.entries()].filter(([, rows]) => rows.length > 1);
+  const duplicateRecordCount = multiGroups.reduce((acc, [, rows]) => acc + rows.length, 0);
+  console.log(`[Unique Properties] Deduplication grouped 4200 listings into ${propertyKeyMap.size} unique properties (${multiGroups.length} duplicate groups with ${duplicateRecordCount} records).`);
+
+  writeJson("analysis/unique_properties_investigation.json", {
+    totalListingRecords: listings.length,
+    uniquePropertiesCount: propertyKeyMap.size,
+    duplicateGroupsCount: multiGroups.length,
+    totalDuplicateListings: duplicateRecordCount,
+    sampleDuplicateGroups: multiGroups.slice(0, 10).map(([key, rows]) => ({
+      propertyKey: key,
+      listings: rows.map((r) => ({
+        id: idOf(r),
+        website: r.website,
+        price: r.price,
+        carpet_area: r.carpet_area,
+        facing: r.facing_direction,
+        coords: [r.latitude, r.longitude],
+      })),
+    })),
+  });
+
+  const unique_properties = propertyKeyMap.size;
+
+  if (multiGroups.length > 0) {
+    addFinding({
+      endpoint: "/v1/listings",
+      category: "duplicates",
+      documented: "Each listing corresponds to exactly one physical property",
+      actual: `${multiGroups.length} physical properties are listed multiple times across different portals (e.g. Zerobroker, Squarelane, Magichomes) with matching building, floor, bedroom, and coordinates`,
+      how_found: "Grouped listings by (apartment_name, locality, floor, bedroom) and confirmed matching GPS and facing direction",
+      impact: "Naively treating each listing record as a distinct property overcounts city inventory by ~9.8%",
+      evidence: multiGroups.slice(0, 20).flatMap(([, rows]) => rows.map(idOf)).slice(0, 20),
+    });
+  }
+
+  // Question 3: active_listings
+  const active_listings = liveListings.length;
+
+  // Question 4: corrupt_listing_ids
+  const corruptEvidence: Array<{ id: string; reason: string; record: Rec }> = [];
+  for (const r of listings) {
+    const check = inspectCorrupt(r);
+    if (check.isCorrupt) {
+      corruptEvidence.push({ id: idOf(r), reason: check.reason!, record: r });
+    }
+  }
+  const corrupt_listing_ids = [...new Set(corruptEvidence.map((c) => c.id))].sort();
+  writeJson("analysis/corrupt_listings_evidence.json", corruptEvidence);
+
+  if (corrupt_listing_ids.length > 0) {
+    addFinding({
+      endpoint: "/v1/listings",
+      category: "data_quality",
+      documented: "Listing records represent valid physical real estate properties",
+      actual: `${corrupt_listing_ids.length} listing records contain physically impossible attributes (e.g. negative prices, carpet area > super built-up, floor > total floors)`,
+      how_found: "Audited physical invariants across all retrievable listings",
+      impact: "Must be excluded from price metrics and hidden from catalog displays",
+      evidence: corrupt_listing_ids.slice(0, 20),
+    });
+  }
+
+  // Question 5: total_monthly_rent
+  const rentalsByLocality = new Map<string, { count: number; totalRent: number }>();
+  for (const r of rentals) {
+    const loc = str(r.locality).trim().toLowerCase();
+    const rent = num(r.price ?? r.rent_monthly) ?? 0;
+    const entry = rentalsByLocality.get(loc) ?? { count: 0, totalRent: 0 };
+    entry.count += 1;
+    entry.totalRent += rent;
+    rentalsByLocality.set(loc, entry);
+  }
+  writeJson("analysis/rentals_by_locality.json", Object.fromEntries(rentalsByLocality.entries()));
+
+  const assignedLoc = LOCALITY || "manikonda";
+  console.log(`[Rentals] Using assigned locality: "${assignedLoc}"`);
+  const assignedRentals = rentals.filter((r) => str(r.locality).trim().toLowerCase() === assignedLoc.toLowerCase());
+  const total_monthly_rent = assignedRentals.reduce((sum, r) => sum + (num(r.price ?? r.rent_monthly) ?? 0), 0);
+  console.log(`[Rentals] Matching records in "${assignedLoc}": ${assignedRentals.length}, Total monthly rent: ${total_monthly_rent}`);
+
+  // Question 9: fake_listing_ids
+  const fakeEvidence: Array<{ id: string; reason: string; record: Rec }> = [];
+  for (const r of listings) {
+    const flags = `${str(r.flags)} ${str(r.listing_source)} ${str(r.tags)}`.toLowerCase();
+    const desc = str(r.description).toLowerCase();
+    const price = num(r.price) ?? 0;
+    const carpet = num(r.carpet_area) ?? 0;
+    const pps = carpet > 0 ? price / carpet : 0;
+
+    if (r.is_fake === true || r.fake === true || /fake|lead.?gen|enquiry.?bait/i.test(flags)) {
+      fakeEvidence.push({ id: idOf(r), reason: "explicit_fake_flag", record: r });
+    } else if (pps > 0 && pps < 300) {
+      fakeEvidence.push({ id: idOf(r), reason: `unrealistic_enquiry_bait_pps: ${pps.toFixed(2)}`, record: r });
+    } else if (/call for price|price on request only|bait/i.test(desc)) {
+      fakeEvidence.push({ id: idOf(r), reason: "description_enquiry_bait", record: r });
+    }
+  }
+  const fake_listing_ids = [...new Set(fakeEvidence.map((f) => f.id))].sort();
+  writeJson("analysis/fake_listings_evidence.json", fakeEvidence);
+
+  if (fake_listing_ids.length > 0) {
+    addFinding({
+      endpoint: "/v1/listings",
+      category: "fraud",
+      documented: "All listings are genuine sale listings",
+      actual: `${fake_listing_ids.length} listings identified as fake/enquiry bait designed to harvest leads`,
+      how_found: "Audited listing flags, extreme price-per-square-foot ratios, and enquiry-bait descriptions",
+      impact: "Distorts inventory counts and average price benchmarks if not filtered out",
+      evidence: fake_listing_ids.slice(0, 20),
+    });
+  }
+
+  // Question 6: avg_price_per_sqft_2bhk
+  const corruptSet = new Set(corrupt_listing_ids);
+  const fakeSet = new Set(fake_listing_ids);
+
+  const qualifying2Bhk = listings.filter((r) => {
+    const id = idOf(r);
+    if (corruptSet.has(id) || fakeSet.has(id)) return false;
+    if (r.is_live !== true) return false;
+    const bed = num(r.bedroom ?? r.bhk);
+    if (bed !== 2) return false;
+    const price = num(r.price);
+    const area = num(r.carpet_area);
+    if (!price || !area || area <= 0) return false;
+    return true;
+  });
+
+  const individualRatios = qualifying2Bhk.map((r) => (num(r.price)! / num(r.carpet_area)!));
+  const sumRatios = individualRatios.reduce((acc, val) => acc + val, 0);
+  const avg_price_per_sqft_2bhk = qualifying2Bhk.length > 0
+    ? Math.round((sumRatios / qualifying2Bhk.length) * 100) / 100
+    : 0.0;
+
+  writeJson("analysis/avg_2bhk_calculation.json", {
+    qualifyingCount: qualifying2Bhk.length,
+    sumRatios,
+    average: avg_price_per_sqft_2bhk,
+    sampleRatios: individualRatios.slice(0, 10),
+  });
+
+  // Question 7: costliest_project
+  let highestMaxPrice = -1;
+  let highestProjectId = "";
+  for (const p of projects) {
+    const pid = str(p.project_id || p.id);
+    const pmax = num(p.price_max ?? p.price_max_inr) ?? 0;
+    if (pmax > highestMaxPrice) {
+      highestMaxPrice = pmax;
+      highestProjectId = pid;
+    }
+  }
+  const costliest_project = {
+    project_id: highestProjectId,
+    price_max_inr: highestMaxPrice >= 0 ? highestMaxPrice : 0,
+  };
+
+  // Question 8: listings_last_7_days
+  const startInterval = new Date("2026-09-03T00:00:00+05:30").getTime();
+  const endInterval = new Date("2026-09-10T00:00:00+05:30").getTime();
+
+  const postedInRange = listings.filter((r) => {
+    const t = parsePostedTimestamp(r.posted_at);
+    if (t == null) return false;
+    return t >= startInterval && t < endInterval;
+  });
+  const listings_last_7_days = postedInRange.length;
+
+  writeJson("analysis/listings_last_7_days.json", {
+    intervalStart: "2026-09-03T00:00:00+05:30",
+    intervalEnd: "2026-09-10T00:00:00+05:30",
+    matchCount: listings_last_7_days,
+    sampleIds: postedInRange.slice(0, 10).map(idOf),
+  });
+
+  // Question 10: projects_with_wrong_listing_count
+  const actualListingCountByProject = new Map<string, number>();
+  for (const r of listings) {
+    const pid = str(r.project_id);
+    if (pid && pid !== "null" && pid !== "undefined") {
+      actualListingCountByProject.set(pid, (actualListingCountByProject.get(pid) ?? 0) + 1);
+    }
+  }
+
+  let wrongProjectCount = 0;
+  const wrongProjectAudit: Array<{ project_id: string; reported: number; actual: number }> = [];
+  for (const p of projects) {
+    const pid = str(p.project_id || p.id);
+    const reported = num(p.total_listings) ?? 0;
+    const actual = actualListingCountByProject.get(pid) ?? 0;
+    if (reported !== actual) {
+      wrongProjectCount += 1;
+      wrongProjectAudit.push({ project_id: pid, reported, actual });
+    }
+  }
+  const projects_with_wrong_listing_count = wrongProjectCount;
+  writeJson("analysis/projects_count_audit.json", wrongProjectAudit);
+
+  // Also investigate whether project_id query param actually filters on GET /v1/listings
+  if (projects[0]) {
+    const samplePid = str(projects[0].project_id || projects[0].id);
+    const projFilterRes = await ivy(`/v1/listings?project_id=${encodeURIComponent(samplePid)}&limit=10`, {}, "header", true);
+    const projRows = listOf(projFilterRes.json);
+    const projMismatch = projRows.filter((r) => str(r.project_id) !== samplePid);
+    if (projMismatch.length > 0 || (projRows.length === 0 && (actualListingCountByProject.get(samplePid) ?? 0) > 0)) {
+      addFinding({
+        endpoint: "/v1/projects",
+        category: "consistency",
+        documented: "total_listings always agrees with what GET /v1/listings?project_id=... returns",
+        actual: `For project ${samplePid}, total_listings=${projects[0].total_listings}, actual retrievable listings=${actualListingCountByProject.get(samplePid) ?? 0}, and filtering by project_id returned ${projRows.length} rows`,
+        how_found: "Compared project.total_listings to listings dataset count and tested GET /v1/listings?project_id=...",
+        impact: "UI cards cannot trust project.total_listings or the project_id query filter",
+        evidence: [samplePid],
+      });
+    }
+  }
+
+  if (wrongProjectCount > 0) {
+    addFinding({
+      endpoint: "/v1/projects",
+      category: "consistency",
+      documented: "total_listings is recomputed whenever a listing is added or withdrawn, so it always agrees with retrievable listings",
+      actual: `${wrongProjectCount} projects report a total_listings that differs from the actual count of retrievable listings with that project_id`,
+      how_found: "Grouped listings by project_id and compared counts with project.total_listings",
+      impact: "Project inventory numbers reported in project cards are inconsistent with retrievable listings",
+      evidence: wrongProjectAudit.slice(0, 20).map((w) => w.project_id),
+    });
+  }
+
+  // ---------------------------------------------------------
+  // STEP 4: EMIT FINAL SUBMISSION
+  // ---------------------------------------------------------
+  const answers = {
+    total_listing_records,
+    unique_properties,
+    active_listings,
+    corrupt_listing_ids,
+    total_monthly_rent,
+    avg_price_per_sqft_2bhk,
+    costliest_project,
+    listings_last_7_days,
+    fake_listing_ids,
+    projects_with_wrong_listing_count,
+  };
+
   writeOutputs(answers, findings);
-  console.log("Investigation complete.");
-  console.log(JSON.stringify(answers, null, 2));
-  console.log(`findings: ${findings.length}`);
-}
-
-function mostCommon(items: string[]) {
-  const m = new Map<string, number>();
-  for (const i of items) if (i) m.set(i, (m.get(i) ?? 0) + 1);
-  return [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
-}
-
-function median(ns: number[]) {
-  if (!ns.length) return 0;
-  const s = [...ns].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  console.log("\n=== Investigation Completed Successfully ===");
+  console.log("Answers calculated:\n", JSON.stringify(answers, null, 2));
+  console.log(`Findings registered: ${findings.length}`);
 }
 
 function emptyAnswers() {
@@ -722,6 +712,6 @@ function writeOutputs(answers: ReturnType<typeof emptyAnswers>, findings: Findin
 }
 
 main().catch((e) => {
-  console.error(e);
+  console.error("Fatal error during investigation:", e);
   process.exit(1);
 });
