@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 
 const link = ({ isActive }: { isActive: boolean }) =>
@@ -6,6 +6,7 @@ const link = ({ isActive }: { isActive: boolean }) =>
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-ink/10 bg-sand/90 backdrop-blur">
@@ -54,7 +55,13 @@ export default function Layout() {
                 <NavLink to="/customer/profile" className={link}>
                   {user.name}
                 </NavLink>
-                <button className="text-sm text-ink/70" onClick={() => void logout()}>
+                <button
+                  className="text-sm text-ink/70 hover:text-ink transition"
+                  onClick={async () => {
+                    await logout();
+                    navigate("/login");
+                  }}
+                >
                   Logout
                 </button>
               </>

@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { inr, imgSrc } from "../../lib/format";
-import { PropertyMap } from "../../components/PropertyMap";
 import { useAuth } from "../../auth";
 import type { Property, IvyListing } from "../../types";
 
@@ -358,30 +357,47 @@ export default function PropertyDetailPage() {
             </div>
 
             {/* Action Buttons */}
-            <div className="space-y-3 pt-2">
-              <button
-                onClick={() => setShowVisitModal(true)}
-                className="w-full rounded-xl bg-ink py-3 font-semibold text-sand shadow hover:bg-ink/90 transition"
-              >
-                Schedule Property Visit
-              </button>
-
-              {item.isPlatform && item.status !== "SOLD" && (
-                <button
-                  onClick={() => void handleCart()}
-                  className="w-full rounded-xl border-2 border-ink py-3 font-semibold text-ink hover:bg-ink/5 transition"
+            {user?.role === "SELLER" ? (
+              <div className="rounded-2xl border border-ink/10 bg-sand/40 p-4 text-center space-y-2">
+                <span className="inline-block rounded-full bg-ink/10 px-3 py-1 text-xs font-bold text-ink">
+                  Seller Portal View
+                </span>
+                <p className="text-xs text-ink/70">
+                  You are logged in with a Seller account. Customer actions (cart, visit requests, favorites) are disabled.
+                </p>
+                <Link
+                  to="/seller/properties"
+                  className="inline-block rounded-xl bg-ink px-4 py-2 text-xs font-semibold text-sand hover:bg-ink/90 transition mt-1"
                 >
-                  Add to Cart
+                  Manage My Inventory &rarr;
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-3 pt-2">
+                <button
+                  onClick={() => setShowVisitModal(true)}
+                  className="w-full rounded-xl bg-ink py-3 font-semibold text-sand shadow hover:bg-ink/90 transition"
+                >
+                  Schedule Property Visit
                 </button>
-              )}
 
-              <button
-                onClick={() => void handleFav()}
-                className="w-full rounded-xl border border-ink/20 py-2.5 text-sm font-semibold text-ink/80 hover:bg-ink/5 transition"
-              >
-                ♥ Save to Favourites
-              </button>
-            </div>
+                {item.isPlatform && item.status !== "SOLD" && (
+                  <button
+                    onClick={() => void handleCart()}
+                    className="w-full rounded-xl border-2 border-ink py-3 font-semibold text-ink hover:bg-ink/5 transition"
+                  >
+                    Add to Cart
+                  </button>
+                )}
+
+                <button
+                  onClick={() => void handleFav()}
+                  className="w-full rounded-xl border border-ink/20 py-2.5 text-sm font-semibold text-ink/80 hover:bg-ink/5 transition"
+                >
+                  ♥ Save to Favourites
+                </button>
+              </div>
+            )}
 
             {/* Contact Details Card */}
             <div className="rounded-2xl bg-sand/40 p-4 space-y-2 border border-ink/5">
@@ -400,24 +416,13 @@ export default function PropertyDetailPage() {
             </div>
           </div>
 
-          {/* Map Widget */}
+          {/* Location Details (Keywords/Address only - Map removed) */}
           <div className="rounded-3xl border border-ink/10 bg-white p-5 shadow-sm space-y-3">
-            <h3 className="font-serif text-base font-bold">Location & Landmark</h3>
-            <p className="text-xs text-ink/70">{item.address || `${item.locality}, Bengaluru`}</p>
-            <div className="h-56 w-full rounded-2xl overflow-hidden border border-ink/10">
-              <PropertyMap
-                points={[
-                  {
-                    id: item.id,
-                    title: item.title,
-                    price: item.price,
-                    latitude: item.latitude,
-                    longitude: item.longitude,
-                  },
-                ]}
-                center={[item.latitude, item.longitude]}
-              />
-            </div>
+            <h3 className="font-serif text-base font-bold">Location &amp; Address</h3>
+            <p className="text-sm font-semibold text-ink">📍 {item.locality}, {item.city}</p>
+            {item.address && (
+              <p className="text-xs text-ink/70">{item.address}</p>
+            )}
           </div>
         </div>
       </div>

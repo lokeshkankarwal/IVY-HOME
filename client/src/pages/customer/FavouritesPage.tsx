@@ -72,7 +72,7 @@ export default function FavouritesPage() {
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((fav) => {
             const p = fav.property;
-            const targetId = fav.propertyId || fav.ivyListingId || fav.id;
+            const targetId = fav.property?.id || fav.propertyId || fav.ivyListingId || fav.id;
             const title = p?.title || (fav.ivyListingId ? `Ivy MLS Listing #${fav.ivyListingId}` : "Saved Property");
             const price = p?.price;
             const locality = p?.locality;

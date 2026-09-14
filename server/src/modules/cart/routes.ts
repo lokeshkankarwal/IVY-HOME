@@ -6,4 +6,5 @@ export const cartRouter = Router();
 cartRouter.use(requireAuth, requireRole("CUSTOMER", "SUPERADMIN"));
 cartRouter.get("/", c.get);
 cartRouter.post("/", c.add);
+cartRouter.post("/checkout", c.checkout);
 cartRouter.delete("/:propertyId", c.remove);

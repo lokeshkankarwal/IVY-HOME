@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { inr, imgSrc } from "../../lib/format";
-import { PropertyMap, type MapPoint } from "../../components/PropertyMap";
 import type { IvyRental, Property } from "../../types";
 
 export type UnifiedRental = {
@@ -34,7 +33,6 @@ export default function RentalsPage() {
   const [furnishing, setFurnishing] = useState(searchParams.get("furnishing") || "");
   const [maxRent, setMaxRent] = useState(searchParams.get("maxRent") || "");
   const [sortBy, setSortBy] = useState("rent_asc");
-  const [viewMode, setViewMode] = useState<"grid" | "map">("grid");
 
   const [rentals, setRentals] = useState<IvyRental[]>([]);
   const [platformRentals, setPlatformRentals] = useState<Property[]>([]);
@@ -181,19 +179,6 @@ export default function RentalsPage() {
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const paginated = sorted.slice((page - 1) * pageSize, page * pageSize);
 
-  const mapPoints: MapPoint[] = useMemo(() => {
-    return sorted
-      .filter((r) => r.latitude && r.longitude)
-      .map((r) => ({
-        id: r.id,
-        title: r.title,
-        price: r.price,
-        latitude: r.latitude,
-        longitude: r.longitude,
-        href: r.href,
-      }));
-  }, [sorted]);
-
   const applyFilters = () => {
     const p = new URLSearchParams();
     if (locality) p.set("locality", locality);
@@ -221,25 +206,6 @@ export default function RentalsPage() {
           <p className="text-sm text-ink/70">
             {sorted.length} verified rental listings with correct monthly rents & security deposits
           </p>
-        </div>
-
-        <div className="flex rounded-xl bg-ink/5 p-1 text-xs font-semibold">
-          <button
-            onClick={() => setViewMode("grid")}
-            className={`rounded-lg px-3 py-1.5 transition ${
-              viewMode === "grid" ? "bg-white shadow text-ink" : "text-ink/60 hover:text-ink"
-            }`}
-          >
-            Grid
-          </button>
-          <button
-            onClick={() => setViewMode("map")}
-            className={`rounded-lg px-3 py-1.5 transition ${
-              viewMode === "map" ? "bg-white shadow text-ink" : "text-ink/60 hover:text-ink"
-            }`}
-          >
-            Map
-          </button>
         </div>
       </div>
 
@@ -354,10 +320,6 @@ export default function RentalsPage() {
       ) : sorted.length === 0 ? (
         <div className="rounded-2xl border border-ink/10 bg-white p-12 text-center text-ink/60">
           No rentals found for the selected criteria.
-        </div>
-      ) : viewMode === "map" ? (
-        <div className="rounded-2xl overflow-hidden border border-ink/10 shadow">
-          <PropertyMap points={mapPoints} />
         </div>
       ) : (
         <>

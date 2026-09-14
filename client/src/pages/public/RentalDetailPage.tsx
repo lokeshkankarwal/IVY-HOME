@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { inr } from "../../lib/format";
-import { PropertyMap } from "../../components/PropertyMap";
 import type { IvyRental } from "../../types";
 
 export default function RentalDetailPage() {
@@ -157,21 +156,8 @@ export default function RentalDetailPage() {
 
           <div className="rounded-3xl border border-ink/10 bg-white p-5 shadow-sm space-y-3">
             <h3 className="font-serif text-base font-bold">Location</h3>
+            <p className="text-sm font-semibold text-ink">📍 {rental.locality}</p>
             <p className="text-xs text-ink/70 capitalize">{rental.apartment_name ? `${rental.apartment_name}, ` : ""}{rental.locality}, Bengaluru</p>
-            <div className="h-56 w-full rounded-2xl overflow-hidden border border-ink/10">
-              <PropertyMap
-                points={[
-                  {
-                    id: rental.listing_id,
-                    title: rental.title,
-                    price: rental.price,
-                    latitude: rental.latitude,
-                    longitude: rental.longitude,
-                  },
-                ]}
-                center={[rental.latitude, rental.longitude]}
-              />
-            </div>
           </div>
         </div>
       </div>

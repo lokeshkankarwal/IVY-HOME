@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { PropertyCard } from "../../components/PropertyCard";
-import { PropertyMap, type MapPoint } from "../../components/PropertyMap";
 import { useAuth } from "../../auth";
 import type { Property, IvyListing } from "../../types";
 
@@ -19,7 +18,6 @@ export default function PropertiesPage() {
   const [maxPrice, setMaxPrice] = useState(searchParams.get("maxPrice") || "");
   const [sortBy, setSortBy] = useState("newest");
   const [sourceTab, setSourceTab] = useState<"all" | "ivy" | "platform">("all");
-  const [viewMode, setViewMode] = useState<"grid" | "map">("grid");
 
   const [platformProps, setPlatformProps] = useState<Property[]>([]);
   const [ivyListings, setIvyListings] = useState<IvyListing[]>([]);
@@ -248,20 +246,6 @@ export default function PropertiesPage() {
   const totalPages = Math.max(1, Math.ceil(sortedItems.length / pageSize));
   const paginatedItems = sortedItems.slice((page - 1) * pageSize, page * pageSize);
 
-  // Map points
-  const mapPoints: MapPoint[] = useMemo(() => {
-    return sortedItems
-      .filter((p) => p.latitude && p.longitude)
-      .map((p) => ({
-        id: p.id,
-        title: p.title,
-        price: p.price,
-        latitude: p.latitude,
-        longitude: p.longitude,
-        href: p.href,
-      }));
-  }, [sortedItems]);
-
   const handleFav = async (item: NormalizedItem) => {
     if (!user) {
       setActionMsg("Please log in to save favourites.");
@@ -349,26 +333,6 @@ export default function PropertiesPage() {
               }`}
             >
               Platform ({platformProps.length})
-            </button>
-          </div>
-
-          {/* View toggle */}
-          <div className="flex rounded-xl bg-ink/5 p-1 text-xs font-semibold">
-            <button
-              onClick={() => setViewMode("grid")}
-              className={`rounded-lg px-3 py-1.5 transition ${
-                viewMode === "grid" ? "bg-white shadow text-ink" : "text-ink/60 hover:text-ink"
-              }`}
-            >
-              Grid
-            </button>
-            <button
-              onClick={() => setViewMode("map")}
-              className={`rounded-lg px-3 py-1.5 transition ${
-                viewMode === "map" ? "bg-white shadow text-ink" : "text-ink/60 hover:text-ink"
-              }`}
-            >
-              Map
             </button>
           </div>
         </div>
@@ -516,10 +480,6 @@ export default function PropertiesPage() {
         <div className="rounded-2xl border border-ink/10 bg-white p-12 text-center text-ink/60">
           No properties match your active filters. Try clearing or adjusting the filters.
         </div>
-      ) : viewMode === "map" ? (
-        <div className="rounded-2xl overflow-hidden border border-ink/10 shadow">
-          <PropertyMap points={mapPoints} />
-        </div>
       ) : (
         <>
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -535,8 +495,8 @@ export default function PropertiesPage() {
                 image={item.image}
                 href={item.href}
                 sold={item.isSold}
-                onFav={() => void handleFav(item)}
-                onCart={!item.isSold && item.source === "platform" ? () => void handleCart(item) : undefined}
+                onFav={user?.role === "SELLER" ? undefined : () => void handleFav(item)}
+                onCart={user?.role === "SELLER" || item.isSold || item.source !== "platform" ? undefined : () => void handleCart(item)}
               />
             ))}
           </div>
