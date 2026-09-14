@@ -14,7 +14,7 @@ export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   jwtSecret: process.env.JWT_SECRET ?? "dev-secret",
   // Supports a comma-separated list, e.g. "https://ivy-home-client.vercel.app,http://localhost:5173"
-  clientOrigin: (process.env.CLIENT_ORIGIN ?? "http://localhost:5173")
+  clientOrigin: (process.env.CLIENT_ORIGIN ?? "https://ivy-home-client.vercel.app,http://localhost:5173")
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean),

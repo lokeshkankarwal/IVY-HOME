@@ -6,6 +6,7 @@ export const adminRouter = Router();
 adminRouter.use(requireAuth, requireRole("SUPERADMIN"));
 adminRouter.get("/dashboard", c.dashboard);
 adminRouter.get("/sellers/requests", c.sellerRequests);
+adminRouter.get("/seller-requests", c.sellerRequests); // alias: frontend calls /admin/seller-requests
 adminRouter.get("/sellers", c.sellers);
 adminRouter.post("/sellers/:id/review", c.reviewSeller);
 adminRouter.get("/users", c.users);
