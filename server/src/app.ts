@@ -25,6 +25,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export function createApp() {
   ensureUploadDir();
   const app = express();
+  app.set("trust proxy", 1);
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
   app.use(
     cors({
