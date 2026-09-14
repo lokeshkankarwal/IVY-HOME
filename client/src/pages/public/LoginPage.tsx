@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "../../api/client";
+import { api, setStoredToken } from "../../api/client";
 import { useAuth } from "../../auth";
 
 export default function LoginPage() {
@@ -20,9 +20,11 @@ export default function LoginPage() {
 
     try {
       if (tab === "ivy") {
-        await api.post("/auth/ivy-login", { email, password });
+        const res = await api.post<{ token?: string }>("/auth/ivy-login", { email, password });
+        if (res.token) setStoredToken(res.token);
       } else {
-        await api.post("/auth/login", { email, password });
+        const res = await api.post<{ token?: string }>("/auth/login", { email, password });
+        if (res.token) setStoredToken(res.token);
       }
       await refresh();
       navigate("/");

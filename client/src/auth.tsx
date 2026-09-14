@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { api } from "./api/client";
+import { api, clearStoredToken } from "./api/client";
 
 export type User = {
   id: string;
@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = async () => {
+    clearStoredToken();
     await api.post("/auth/logout");
     setUser(null);
   };
