@@ -3,7 +3,28 @@ import { useSearchParams, Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { inr, imgSrc } from "../../lib/format";
 import { PropertyMap, type MapPoint } from "../../components/PropertyMap";
-import type { IvyRental } from "../../types";
+import type { IvyRental, Property } from "../../types";
+
+export type UnifiedRental = {
+  id: string;
+  title: string;
+  apartment_name?: string;
+  locality: string;
+  city?: string;
+  address?: string;
+  bedroom: number;
+  floor?: number;
+  furnishing: string;
+  price: number;
+  deposit?: number;
+  carpet_area: number;
+  latitude: number;
+  longitude: number;
+  posted_by: string;
+  image: string;
+  href: string;
+  source: "ivy" | "platform";
+};
 
 export default function RentalsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -16,6 +37,7 @@ export default function RentalsPage() {
   const [viewMode, setViewMode] = useState<"grid" | "map">("grid");
 
   const [rentals, setRentals] = useState<IvyRental[]>([]);
+  const [platformRentals, setPlatformRentals] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +47,7 @@ export default function RentalsPage() {
 
   useEffect(() => {
     setLoading(true);
-    api
+    const fetchIvy = api
       .get<{ results?: IvyRental[]; rentals?: IvyRental[] }>("/ivy/rentals?limit=100")
       .then((d) => {
         const list = d.results || d.rentals || [];
@@ -33,92 +55,120 @@ export default function RentalsPage() {
         setError(null);
       })
       .catch((err: Error) => {
-        // Fallback sample data if API key not set yet
-        setRentals([
-          {
-            listing_id: "R1000042",
-            title: "2 BHK for rent in Koramangala",
-            apartment_name: "Sobha Meadows",
-            locality: "koramangala",
-            property_type: "apartment",
-            bedroom: 2,
-            bathroom: 2,
-            floor: 4,
-            total_floors: 12,
-            furnishing: "fully-furnished",
-            price: 42000,
-            deposit: 250000,
-            maintenance: 2500,
-            carpet_area: 980,
-            super_builtup_area: 1280,
-            latitude: 12.93461,
-            longitude: 77.62281,
-            posted_by: "owner",
-            posted_by_name: "Priya Nair",
-            posted_by_contact: "+91 98001 23456",
-            description: "2 BHK, fully-furnished, in Sobha Meadows, Koramangala. Close to metro.",
-          },
-          {
-            listing_id: "R1000043",
-            title: "3 BHK Luxury Apartment in Whitefield",
-            apartment_name: "Prestige Boulevard",
-            locality: "whitefield",
-            property_type: "apartment",
-            bedroom: 3,
-            bathroom: 3,
-            floor: 8,
-            total_floors: 18,
-            furnishing: "semi-furnished",
-            price: 65000,
-            deposit: 350000,
-            maintenance: 4500,
-            carpet_area: 1450,
-            super_builtup_area: 1820,
-            latitude: 12.9698,
-            longitude: 77.7499,
-            posted_by: "agent",
-            posted_by_name: "Karan Singhal",
-            posted_by_contact: "+91 98222 33445",
-            description: "Modern 3 BHK with premium fittings, clubhouse and gym.",
-          },
-          {
-            listing_id: "R1000044",
-            title: "1 BHK Studio in Indiranagar",
-            apartment_name: "Indira Court",
-            locality: "indiranagar",
-            property_type: "apartment",
-            bedroom: 1,
-            bathroom: 1,
-            floor: 2,
-            total_floors: 4,
-            furnishing: "fully-furnished",
-            price: 28000,
-            deposit: 120000,
-            maintenance: 1500,
-            carpet_area: 600,
-            super_builtup_area: 750,
-            latitude: 12.9784,
-            longitude: 77.6408,
-            posted_by: "owner",
-            posted_by_name: "Amit Patel",
-            posted_by_contact: "+91 98765 43210",
-            description: "Walking distance to 100 Feet Road restaurants and metro station.",
-          },
-        ]);
         setError(err.message || "Ivy Rentals API offline");
-      })
-      .finally(() => setLoading(false));
+      });
+
+    const fetchPlatform = api
+      .get<{ results: Property[] }>("/properties?listingType=RENT&limit=100")
+      .then((d) => setPlatformRentals(d.results || []))
+      .catch(() => setPlatformRentals([]));
+
+    Promise.allSettled([fetchIvy, fetchPlatform]).finally(() => setLoading(false));
   }, []);
 
+  // Unified rentals combining Ivy API and platform verified rentals
+  const unifiedRentals: UnifiedRental[] = useMemo(() => {
+    const list: UnifiedRental[] = [];
+
+    // Platform rentals
+    platformRentals.forEach((p) => {
+      list.push({
+        id: p.id,
+        title: p.title,
+        apartment_name: p.projectName,
+        locality: p.locality,
+        city: p.city || "Bengaluru",
+        address: p.address,
+        bedroom: p.bhk,
+        floor: p.floor,
+        furnishing: p.furnishing.toLowerCase().replace(/_/g, "-"),
+        price: p.price,
+        deposit: Math.round(p.price * 3),
+        carpet_area: p.carpetArea,
+        latitude: p.latitude || 12.9716,
+        longitude: p.longitude || 77.5946,
+        posted_by: p.seller?.name || "Verified Seller",
+        image: p.primaryImage || "/defaults/apartment.svg",
+        href: `/properties/${p.id}`,
+        source: "platform",
+      });
+    });
+
+    // Ivy rentals
+    rentals.forEach((r) => {
+      list.push({
+        id: r.listing_id,
+        title: r.title,
+        apartment_name: r.apartment_name,
+        locality: r.locality,
+        city: "Bengaluru",
+        address: r.apartment_name ? `${r.apartment_name}, ${r.locality}` : r.locality,
+        bedroom: r.bedroom,
+        floor: r.floor,
+        furnishing: (r.furnishing || "").toLowerCase().replace(/_/g, "-"),
+        price: r.price,
+        deposit: r.deposit,
+        carpet_area: r.carpet_area,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        posted_by: r.posted_by || "owner",
+        image: "/defaults/apartment.svg",
+        href: `/rentals/${r.listing_id}`,
+        source: "ivy",
+      });
+    });
+
+    return list;
+  }, [rentals, platformRentals]);
+
+  // Client-side filtering with broad district/city/locality/address matching
   const filtered = useMemo(() => {
-    return rentals.filter((r) => {
-      if (locality && !r.locality.toLowerCase().includes(locality.toLowerCase().trim())) return false;
+    return unifiedRentals.filter((r) => {
+      if (locality) {
+        const needle = locality.toLowerCase().trim();
+        const loc = (r.locality || "").toLowerCase();
+        const city = (r.city || "").toLowerCase();
+        const addr = (r.address || "").toLowerCase();
+        const apt = (r.apartment_name || "").toLowerCase();
+        const title = (r.title || "").toLowerCase();
+        const matches =
+          loc.includes(needle) ||
+          city.includes(needle) ||
+          addr.includes(needle) ||
+          apt.includes(needle) ||
+          title.includes(needle);
+        if (!matches) return false;
+      }
       if (bhk && r.bedroom !== Number(bhk)) return false;
       if (furnishing && !r.furnishing.toLowerCase().includes(furnishing.toLowerCase())) return false;
       if (maxRent && r.price > Number(maxRent)) return false;
       return true;
     });
-  }, [rentals, locality, bhk, furnishing, maxRent]);
+  }, [unifiedRentals, locality, bhk, furnishing, maxRent]);
+
+  // Autocomplete location suggestions
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const locationSuggestions = useMemo(() => {
+    if (!locality || locality.trim().length === 0) return [];
+    const needle = locality.toLowerCase().trim();
+    const suggestions = new Set<string>();
+
+    unifiedRentals.forEach((r) => {
+      const parts = [r.locality, r.city, r.address].filter(Boolean);
+      const full = parts.join(", ");
+      if (full.toLowerCase().includes(needle)) {
+        suggestions.add(full);
+      } else {
+        if (r.locality && r.locality.toLowerCase().includes(needle)) suggestions.add(r.locality);
+        if (r.city && r.city.toLowerCase().includes(needle)) suggestions.add(r.city);
+      }
+      if (r.apartment_name && r.apartment_name.toLowerCase().includes(needle)) {
+        suggestions.add(`${r.apartment_name} (${r.locality})`);
+      }
+    });
+
+    return Array.from(suggestions).slice(0, 6);
+  }, [unifiedRentals, locality]);
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
@@ -135,12 +185,12 @@ export default function RentalsPage() {
     return sorted
       .filter((r) => r.latitude && r.longitude)
       .map((r) => ({
-        id: r.listing_id,
+        id: r.id,
         title: r.title,
         price: r.price,
         latitude: r.latitude,
         longitude: r.longitude,
-        href: `/rentals/${r.listing_id}`,
+        href: r.href,
       }));
   }, [sorted]);
 
@@ -202,13 +252,39 @@ export default function RentalsPage() {
       {/* Filter Bar */}
       <div className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <input
-            type="text"
-            placeholder="Locality (e.g. Koramangala)"
-            value={locality}
-            onChange={(e) => setLocality(e.target.value)}
-            className="rounded-xl border border-ink/10 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brass"
-          />
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="District / Locality (e.g. Koramangala, Jagatpura)"
+              value={locality}
+              onChange={(e) => {
+                setLocality(e.target.value);
+                setShowSuggestions(true);
+                setPage(1);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brass"
+            />
+            {showSuggestions && locationSuggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 z-30 mt-1 rounded-xl border border-ink/10 bg-white p-1.5 shadow-xl text-xs space-y-1 max-h-48 overflow-y-auto">
+                {locationSuggestions.map((sug) => (
+                  <button
+                    key={sug}
+                    type="button"
+                    onClick={() => {
+                      setLocality(sug);
+                      setShowSuggestions(false);
+                      setPage(1);
+                    }}
+                    className="w-full rounded-lg px-2.5 py-1.5 text-left font-medium text-ink hover:bg-sand transition flex items-center gap-1.5"
+                  >
+                    <span>📍</span>
+                    <span className="truncate capitalize">{sug}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           <select
             value={bhk}
@@ -288,11 +364,18 @@ export default function RentalsPage() {
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {paginated.map((r) => (
               <article
-                key={r.listing_id}
+                key={r.id}
                 className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm flex flex-col justify-between"
               >
                 <div>
-                  <img src="/defaults/apartment.svg" alt="" className="h-44 w-full object-cover" />
+                  <div className="relative">
+                    <img src={r.image || "/defaults/apartment.svg"} alt="" className="h-44 w-full object-cover" />
+                    <span className={`absolute top-3 left-3 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                      r.source === "platform" ? "bg-brass text-ink" : "bg-moss text-white"
+                    }`}>
+                      {r.source === "platform" ? "Platform Verified" : "Ivy MLS"}
+                    </span>
+                  </div>
                   <div className="p-4 space-y-2">
                     <div className="flex items-center justify-between text-xs uppercase tracking-wide text-moss font-semibold">
                       <span>{r.bedroom} BHK · {r.furnishing.replace(/-/g, " ")}</span>
@@ -311,7 +394,7 @@ export default function RentalsPage() {
                     <div className="grid grid-cols-2 gap-2 text-xs text-ink/70 pt-1 border-t border-ink/5">
                       <div>
                         <span className="text-ink/50">Deposit:</span>{" "}
-                        <span className="font-semibold text-ink/90">{inr(r.deposit)}</span>
+                        <span className="font-semibold text-ink/90">{inr(r.deposit || r.price * 3)}</span>
                       </div>
                       <div>
                         <span className="text-ink/50">Area:</span>{" "}
@@ -320,7 +403,7 @@ export default function RentalsPage() {
                     </div>
 
                     <p className="text-xs text-ink/60 capitalize pt-1">
-                      📍 {r.apartment_name ? `${r.apartment_name}, ` : ""}{r.locality}
+                      📍 {r.apartment_name ? `${r.apartment_name}, ` : ""}{r.locality}{r.city ? `, ${r.city}` : ""}
                     </p>
                   </div>
                 </div>
@@ -328,7 +411,7 @@ export default function RentalsPage() {
                 <div className="border-t border-ink/5 px-4 py-3 bg-sand/20 flex items-center justify-between text-xs">
                   <span className="text-ink/60">Posted by {r.posted_by || "owner"}</span>
                   <Link
-                    to={`/rentals/${r.listing_id}`}
+                    to={r.href}
                     className="font-semibold text-moss hover:underline"
                   >
                     View Details &rarr;

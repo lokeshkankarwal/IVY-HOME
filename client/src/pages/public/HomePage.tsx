@@ -77,7 +77,7 @@ export default function HomePage() {
 
             <input
               type="text"
-              placeholder="Locality (e.g. Whitefield, Koramangala)"
+              placeholder="District / Locality (e.g. Jagatpura, Whitefield, Koramangala)"
               value={locality}
               onChange={(e) => setLocality(e.target.value)}
               className="flex-1 rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brass"

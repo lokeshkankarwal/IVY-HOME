@@ -22,6 +22,8 @@ propertiesRouter.delete("/images/:imageId", requireAuth, requireRole("SELLER", "
 propertiesRouter.get("/:id", optionalAuth, c.getPublic);
 propertiesRouter.patch("/:id", requireAuth, requireRole("SELLER"), c.updateMine);
 propertiesRouter.post("/:id/deactivate", requireAuth, requireRole("SELLER"), c.deactivateMine);
+propertiesRouter.patch("/:id/status", requireAuth, requireRole("SELLER"), c.deactivateMine);
+propertiesRouter.post("/:id/status", requireAuth, requireRole("SELLER"), c.deactivateMine);
 propertiesRouter.post("/:id/images", requireAuth, requireRole("SELLER", "SUPERADMIN"), upload.array("photos", 8), c.uploadImages);
 propertiesRouter.delete("/:id/images/:imageId", requireAuth, requireRole("SELLER", "SUPERADMIN"), c.deleteImage);
 propertiesRouter.post("/:id/images/:imageId/primary", requireAuth, requireRole("SELLER"), c.setPrimary);

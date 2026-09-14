@@ -84,6 +84,8 @@ model Property {
   longitude        Float
   contactName      String
   contactPhone     String
+  listingType      String                   @default("BUY")
+  projectName      String?
   status           PropertyStatus           @default(DRAFT)
   views            Int                      @default(0)
   createdAt        DateTime                 @default(now())

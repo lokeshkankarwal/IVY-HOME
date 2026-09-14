@@ -20,6 +20,8 @@ export interface Property {
   longitude: number;
   contactName?: string;
   contactPhone?: string;
+  listingType?: "BUY" | "RENT";
+  projectName?: string;
   status: "DRAFT" | "ACTIVE" | "INACTIVE" | "SOLD";
   views?: number;
   createdAt?: string;

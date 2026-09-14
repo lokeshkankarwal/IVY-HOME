@@ -9,6 +9,8 @@ const propertyInput = z.object({
   title: z.string().min(3),
   description: z.string().min(3),
   propertyType: z.enum(["APARTMENT", "VILLA", "INDEPENDENT_HOUSE", "PLOT", "BUILDER_FLOOR"]),
+  listingType: z.enum(["BUY", "RENT"]).default("BUY"),
+  projectName: z.string().optional(),
   bhk: z.coerce.number().int().min(0),
   bathrooms: z.coerce.number().int().min(0).default(1),
   price: z.coerce.number().int().min(0),
@@ -52,7 +54,16 @@ export async function listPublic(req: Request, res: Response) {
   const where: Prisma.PropertyWhereInput = {
     status: q.status === "SOLD" ? "SOLD" : "ACTIVE",
   };
-  if (q.locality) where.locality = { contains: q.locality, mode: "insensitive" };
+  if (q.listingType) where.listingType = q.listingType.toUpperCase();
+  if (q.projectName) where.projectName = { contains: q.projectName, mode: "insensitive" };
+  if (q.locality) {
+    where.OR = [
+      { locality: { contains: q.locality, mode: "insensitive" } },
+      { city: { contains: q.locality, mode: "insensitive" } },
+      { address: { contains: q.locality, mode: "insensitive" } },
+      { projectName: { contains: q.locality, mode: "insensitive" } },
+    ];
+  }
   if (q.city) where.city = { contains: q.city, mode: "insensitive" };
   if (q.propertyType) where.propertyType = q.propertyType as never;
   if (q.bhk) where.bhk = Number(q.bhk);
@@ -66,6 +77,9 @@ export async function listPublic(req: Request, res: Response) {
     where.OR = [
       { title: { contains: q.q, mode: "insensitive" } },
       { locality: { contains: q.q, mode: "insensitive" } },
+      { city: { contains: q.q, mode: "insensitive" } },
+      { address: { contains: q.q, mode: "insensitive" } },
+      { projectName: { contains: q.q, mode: "insensitive" } },
       { description: { contains: q.q, mode: "insensitive" } },
     ];
   }

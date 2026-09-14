@@ -2,18 +2,19 @@ import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { inr } from "../../lib/format";
-import type { IvyProject } from "../../types";
+import type { IvyProject, Property } from "../../types";
 
 export default function ProjectsPage() {
   const [locality, setLocality] = useState("");
   const [status, setStatus] = useState("");
   const [projects, setProjects] = useState<IvyProject[]>([]);
+  const [platformProps, setPlatformProps] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
-    api
+    const fetchIvy = api
       .get<{ results?: IvyProject[]; projects?: IvyProject[] }>("/ivy/projects?limit=100")
       .then((d) => {
         const list = d.results || d.projects || [];
@@ -21,91 +22,94 @@ export default function ProjectsPage() {
         setError(null);
       })
       .catch((err: Error) => {
-        // Fallback sample data if Ivy API key not configured yet
-        setProjects([
-          {
-            project_id: "P10001",
-            apartment_name: "Brigade Serenity",
-            developer_name: "Brigade Group",
-            locality: "sarjapur road",
-            project_status: "under construction",
-            total_units: 840,
-            total_towers: 6,
-            total_floors: 22,
-            launch_date: "2024-03-11",
-            possession_date: "2028-09-30",
-            rera_number: "PRM/KA/RERA/1251/446",
-            min_area_sqft: 980,
-            max_area_sqft: 2340,
-            total_listings: 37,
-            price_min: 8900000,
-            price_max: 21400000,
-            amenities: ["gym", "pool", "clubhouse", "park"],
-            latitude: 12.90121,
-            longitude: 77.68442,
-          },
-          {
-            project_id: "P10002",
-            apartment_name: "Prestige Lakeside Habitat",
-            developer_name: "Prestige Group",
-            locality: "whitefield",
-            project_status: "ready to move",
-            total_units: 3426,
-            total_towers: 24,
-            total_floors: 29,
-            launch_date: "2020-01-15",
-            possession_date: "2024-12-31",
-            rera_number: "PRM/KA/RERA/1251/102",
-            min_area_sqft: 1210,
-            max_area_sqft: 3100,
-            total_listings: 52,
-            price_min: 14500000,
-            price_max: 38500000,
-            amenities: ["gym", "pool", "clubhouse", "badminton", "jogging track"],
-            latitude: 12.9698,
-            longitude: 77.7499,
-          },
-          {
-            project_id: "P10003",
-            apartment_name: "Sobha Neopolis",
-            developer_name: "Sobha Limited",
-            locality: "panathur",
-            project_status: "under construction",
-            total_units: 1875,
-            total_towers: 19,
-            total_floors: 18,
-            launch_date: "2023-09-01",
-            possession_date: "2027-12-31",
-            rera_number: "PRM/KA/RERA/1251/789",
-            min_area_sqft: 1611,
-            max_area_sqft: 2481,
-            total_listings: 28,
-            price_min: 21000000,
-            price_max: 42000000,
-            amenities: ["gym", "pool", "clubhouse", "tennis", "spa"],
-            latitude: 12.9341,
-            longitude: 77.7125,
-          },
-        ]);
         setError(err.message || "Ivy Projects API offline");
-      })
-      .finally(() => setLoading(false));
+      });
+
+    const fetchPlatform = api
+      .get<{ results: Property[] }>("/properties?limit=100")
+      .then((d) => setPlatformProps(d.results || []))
+      .catch(() => setPlatformProps([]));
+
+    Promise.allSettled([fetchIvy, fetchPlatform]).finally(() => setLoading(false));
   }, []);
 
+  // Combine Ivy projects with seller-created projects (grouped by projectName)
+  const allProjects = useMemo(() => {
+    const list: IvyProject[] = [...projects];
+
+    // Group platform properties with projectName
+    const projectGroups: Record<string, Property[]> = {};
+    platformProps.forEach((p) => {
+      if (p.projectName && p.projectName.trim()) {
+        const key = p.projectName.trim();
+        if (!projectGroups[key]) projectGroups[key] = [];
+        projectGroups[key].push(p);
+      }
+    });
+
+    Object.entries(projectGroups).forEach(([pName, items]) => {
+      const first = items[0];
+      const prices = items.map((i) => i.price);
+      const areas = items.map((i) => i.carpetArea);
+      list.unshift({
+        project_id: `platform-${pName.toLowerCase().replace(/\W+/g, "-")}`,
+        apartment_name: pName,
+        developer_name: first.seller?.name ? `${first.seller.name} (Verified Seller)` : "Verified Seller",
+        locality: first.locality,
+        project_status: "active units",
+        total_units: items.length * 10,
+        total_listings: items.length,
+        price_min: Math.min(...prices),
+        price_max: Math.max(...prices),
+        min_area_sqft: Math.min(...areas),
+        max_area_sqft: Math.max(...areas),
+        amenities: ["parking", "power backup", "security", "lift"],
+        latitude: first.latitude || 12.9716,
+        longitude: first.longitude || 77.5946,
+      });
+    });
+
+    return list;
+  }, [projects, platformProps]);
+
   const filtered = useMemo(() => {
-    return projects.filter((p) => {
-      if (locality && !p.locality.toLowerCase().includes(locality.toLowerCase().trim())) return false;
+    return allProjects.filter((p) => {
+      if (locality) {
+        const needle = locality.toLowerCase().trim();
+        const loc = (p.locality || "").toLowerCase();
+        const apt = (p.apartment_name || "").toLowerCase();
+        const dev = (p.developer_name || "").toLowerCase();
+        const matches = loc.includes(needle) || apt.includes(needle) || dev.includes(needle);
+        if (!matches) return false;
+      }
       if (status && p.project_status?.toLowerCase() !== status.toLowerCase()) return false;
       return true;
     });
-  }, [projects, locality, status]);
+  }, [allProjects, locality, status]);
+
+  // Location suggestions
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const locationSuggestions = useMemo(() => {
+    if (!locality || locality.trim().length === 0) return [];
+    const needle = locality.toLowerCase().trim();
+    const suggestions = new Set<string>();
+
+    allProjects.forEach((p) => {
+      if (p.locality && p.locality.toLowerCase().includes(needle)) suggestions.add(p.locality);
+      if (p.apartment_name && p.apartment_name.toLowerCase().includes(needle)) {
+        suggestions.add(`${p.apartment_name} (${p.locality})`);
+      }
+    });
+
+    return Array.from(suggestions).slice(0, 6);
+  }, [allProjects, locality]);
 
   return (
     <div className="space-y-6 pb-12">
       <div>
-        <h1 className="font-serif text-3xl font-bold">Direct Builder Projects</h1>
+        <h1 className="font-serif text-3xl font-bold">Direct Builder &amp; Society Projects</h1>
         <p className="text-sm text-ink/70">
-          Curated master developments, gated communities, and RERA-certified projects in Bengaluru
+          Curated developments, communities, and multiple property units for sale and rent
         </p>
       </div>
 
@@ -117,13 +121,37 @@ export default function ProjectsPage() {
 
       {/* Filter Row */}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
-        <input
-          type="text"
-          placeholder="Filter by Locality (e.g. Sarjapur, Whitefield)"
-          value={locality}
-          onChange={(e) => setLocality(e.target.value)}
-          className="flex-1 min-w-[200px] rounded-xl border border-ink/10 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brass"
-        />
+        <div className="relative flex-1 min-w-[200px]">
+          <input
+            type="text"
+            placeholder="District / Locality / Project (e.g. Sarjapur, Jagatpura, Prestige)"
+            value={locality}
+            onChange={(e) => {
+              setLocality(e.target.value);
+              setShowSuggestions(true);
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brass"
+          />
+          {showSuggestions && locationSuggestions.length > 0 && (
+            <div className="absolute top-full left-0 right-0 z-30 mt-1 rounded-xl border border-ink/10 bg-white p-1.5 shadow-xl text-xs space-y-1 max-h-48 overflow-y-auto">
+              {locationSuggestions.map((sug) => (
+                <button
+                  key={sug}
+                  type="button"
+                  onClick={() => {
+                    setLocality(sug);
+                    setShowSuggestions(false);
+                  }}
+                  className="w-full rounded-lg px-2.5 py-1.5 text-left font-medium text-ink hover:bg-sand transition flex items-center gap-1.5"
+                >
+                  <span>📍</span>
+                  <span className="truncate capitalize">{sug}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <select
           value={status}
@@ -131,6 +159,7 @@ export default function ProjectsPage() {
           className="rounded-xl border border-ink/10 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brass"
         >
           <option value="">All Project Statuses</option>
+          <option value="active units">Active Units</option>
           <option value="under construction">Under Construction</option>
           <option value="ready to move">Ready to Move</option>
         </select>

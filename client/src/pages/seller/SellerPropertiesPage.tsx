@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { inr, imgSrc } from "../../lib/format";
 import type { Property } from "../../types";
@@ -10,15 +11,20 @@ export default function SellerPropertiesPage() {
 
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingProperty, setEditingProperty] = useState<Property | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState<Property | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  // New property form state
-  const [formData, setFormData] = useState({
+  // Form state
+  const initialForm = {
     title: "",
     description: "",
     propertyType: "APARTMENT",
+    listingType: "BUY" as "BUY" | "RENT",
+    projectName: "",
     bhk: 2,
     bathrooms: 2,
     price: 7500000,
@@ -35,7 +41,9 @@ export default function SellerPropertiesPage() {
     longitude: 77.5946,
     contactName: "",
     contactPhone: "",
-  });
+  };
+
+  const [formData, setFormData] = useState(initialForm);
 
   const fetchMine = async () => {
     setLoading(true);
@@ -54,14 +62,59 @@ export default function SellerPropertiesPage() {
     void fetchMine();
   }, []);
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleOpenAdd = () => {
+    setFormData(initialForm);
+    setEditingProperty(null);
+    setFormError(null);
+    setShowAddModal(true);
+  };
+
+  const handleOpenEdit = (p: Property) => {
+    setFormData({
+      title: p.title || "",
+      description: p.description || "",
+      propertyType: p.propertyType || "APARTMENT",
+      listingType: (p.listingType as "BUY" | "RENT") || "BUY",
+      projectName: p.projectName || "",
+      bhk: p.bhk || 2,
+      bathrooms: p.bathrooms || 1,
+      price: p.price || 0,
+      carpetArea: p.carpetArea || 0,
+      superBuiltUpArea: p.superBuiltUpArea || p.carpetArea || 0,
+      furnishing: p.furnishing || "SEMI_FURNISHED",
+      floor: p.floor ?? 1,
+      totalFloors: p.totalFloors ?? 1,
+      parking: p.parking ?? 0,
+      address: p.address || "",
+      locality: p.locality || "",
+      city: p.city || "Bengaluru",
+      latitude: p.latitude || 12.9716,
+      longitude: p.longitude || 77.5946,
+      contactName: p.contactName || "",
+      contactPhone: p.contactPhone || "",
+    });
+    setEditingProperty(p);
+    setFormError(null);
+    setShowAddModal(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
+    setSubmitting(true);
     try {
-      await api.post("/properties", formData);
+      if (editingProperty) {
+        await api.patch(`/properties/${editingProperty.id}`, formData);
+      } else {
+        await api.post("/properties", formData);
+      }
       setShowAddModal(false);
+      setEditingProperty(null);
       void fetchMine();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to create property");
+      setFormError(e instanceof Error ? e.message : "Failed to save property");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -114,11 +167,11 @@ export default function SellerPropertiesPage() {
         <div>
           <h1 className="font-serif text-3xl font-bold">My Property Listings</h1>
           <p className="text-sm text-ink/70">
-            Create, edit, and upload media for your active inventory
+            Create, edit, and manage your inventory for sale or rent
           </p>
         </div>
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={handleOpenAdd}
           className="rounded-xl bg-ink px-5 py-2.5 text-sm font-semibold text-sand shadow hover:bg-ink/90"
         >
           + Add New Property
@@ -137,10 +190,10 @@ export default function SellerPropertiesPage() {
         <div className="rounded-3xl border border-ink/10 bg-white p-12 text-center space-y-3">
           <p className="font-serif text-xl font-bold">No properties listed yet</p>
           <p className="text-sm text-ink/70">
-            Add your first property listing to begin receiving customer inquiries and scheduling tours.
+            Add your first property listing for sale or rent to begin receiving customer inquiries and scheduling tours.
           </p>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={handleOpenAdd}
             className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-sand"
           >
             Create Property
@@ -151,7 +204,7 @@ export default function SellerPropertiesPage() {
           {properties.map((p) => (
             <div
               key={p.id}
-              className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm flex flex-col justify-between"
+              className="overflow-hidden rounded-3xl border border-ink/10 bg-white shadow-sm transition hover:shadow-md flex flex-col justify-between"
             >
               <div>
                 <div className="relative">
@@ -160,24 +213,37 @@ export default function SellerPropertiesPage() {
                     alt=""
                     className="h-44 w-full object-cover"
                   />
-                  <span
-                    className={`absolute top-3 left-3 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                      p.status === "ACTIVE"
-                        ? "bg-moss text-white"
-                        : p.status === "SOLD"
-                        ? "bg-ink text-sand"
-                        : "bg-gray-400 text-white"
-                    }`}
-                  >
-                    {p.status}
-                  </span>
+                  <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 z-10">
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        p.status === "ACTIVE"
+                          ? "bg-moss text-white"
+                          : p.status === "SOLD"
+                          ? "bg-red-700 text-white"
+                          : "bg-gray-500 text-white"
+                      }`}
+                    >
+                      {p.status}
+                    </span>
+                    <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-brass text-ink">
+                      {p.listingType === "RENT" ? "FOR RENT" : "FOR SALE"}
+                    </span>
+                    {p.projectName && (
+                      <span className="rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wider bg-ink/80 text-sand truncate max-w-[130px]">
+                        🏢 {p.projectName}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="p-4 space-y-2">
                   <h3 className="font-serif text-lg font-bold line-clamp-1">{p.title}</h3>
-                  <p className="font-serif text-xl font-bold text-brass">{inr(p.price)}</p>
+                  <p className="font-serif text-xl font-bold text-brass">
+                    {p.listingType === "RENT" ? `${inr(p.price)}/mo` : inr(p.price)}
+                  </p>
                   <p className="text-xs text-ink/70">
                     {p.bhk} BHK · {p.carpetArea} sq ft · <span className="capitalize">{p.locality}</span>
+                    {p.city ? `, ${p.city}` : ""}
                   </p>
                   <div className="flex gap-4 text-xs text-ink/60 pt-1 border-t border-ink/5">
                     <span>Views: {p.views ?? 0}</span>
@@ -187,12 +253,28 @@ export default function SellerPropertiesPage() {
               </div>
 
               <div className="border-t border-ink/5 p-3 bg-sand/20 flex flex-wrap gap-2 justify-between items-center text-xs">
-                <button
-                  onClick={() => setShowUploadModal(p)}
-                  className="rounded-lg bg-white border border-ink/20 px-2.5 py-1 font-semibold text-ink hover:bg-sand"
-                >
-                  📷 Manage Photos
-                </button>
+                <div className="flex flex-wrap gap-1.5">
+                  <Link
+                    to={`/properties/${p.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-lg bg-moss/10 text-moss border border-moss/30 px-2.5 py-1 font-semibold hover:bg-moss/20 flex items-center gap-1"
+                  >
+                    👁 Explore
+                  </Link>
+                  <button
+                    onClick={() => handleOpenEdit(p)}
+                    className="rounded-lg bg-white border border-ink/20 px-2.5 py-1 font-semibold text-ink hover:bg-sand flex items-center gap-1"
+                  >
+                    ✏️ Edit
+                  </button>
+                  <button
+                    onClick={() => setShowUploadModal(p)}
+                    className="rounded-lg bg-white border border-ink/20 px-2.5 py-1 font-semibold text-ink hover:bg-sand flex items-center gap-1"
+                  >
+                    📷 Photos
+                  </button>
+                </div>
                 {p.status !== "SOLD" && (
                   <button
                     onClick={() => void handleToggleStatus(p.id)}
@@ -210,18 +292,77 @@ export default function SellerPropertiesPage() {
         </div>
       )}
 
-      {/* Add Property Modal */}
+      {/* Add / Edit Property Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-2xl rounded-3xl bg-white p-6 sm:p-8 shadow-2xl space-y-4 my-8 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-ink/10 pb-3">
-              <h2 className="font-serif text-2xl font-bold">Add New Property Listing</h2>
+              <div>
+                <h2 className="font-serif text-2xl font-bold">
+                  {editingProperty ? "Edit Property Listing" : "Add New Property Listing"}
+                </h2>
+                <p className="text-xs text-ink/60 mt-0.5">
+                  {editingProperty
+                    ? "Update property specifications, pricing, and project details"
+                    : "Fill out the specifications below to publish on the platform"}
+                </p>
+              </div>
               <button onClick={() => setShowAddModal(false)} className="text-xl text-ink/50 hover:text-ink">
                 &times;
               </button>
             </div>
 
-            <form onSubmit={handleCreate} className="space-y-4 text-xs">
+            {/* Error Banner displayed directly on the modal */}
+            {formError && (
+              <div className="rounded-2xl bg-red-50 border border-red-200 p-3.5 text-xs text-red-800 flex items-start gap-2.5 animate-fade-in">
+                <span className="text-base leading-none">⚠️</span>
+                <div>
+                  <p className="font-bold text-red-900">Validation / Error Notice</p>
+                  <p className="mt-0.5">{formError}</p>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+              {/* Listing Purpose: Buy vs Rent */}
+              <div>
+                <label className="block font-semibold text-ink/70 mb-1">Listing Purpose</label>
+                <div className="flex rounded-xl bg-ink/5 p-1 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, listingType: "BUY" })}
+                    className={`flex-1 rounded-lg py-2 transition ${
+                      formData.listingType === "BUY" ? "bg-white shadow text-ink" : "text-ink/60 hover:text-ink"
+                    }`}
+                  >
+                    🏷️ For Sale (Buy)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, listingType: "RENT" })}
+                    className={`flex-1 rounded-lg py-2 transition ${
+                      formData.listingType === "RENT" ? "bg-white shadow text-ink" : "text-ink/60 hover:text-ink"
+                    }`}
+                  >
+                    🔑 For Rent (Lease)
+                  </button>
+                </div>
+              </div>
+
+              {/* Project / Society Name */}
+              <div>
+                <label className="block font-semibold text-ink/70 mb-1">
+                  Project / Society Name <span className="font-normal text-ink/50">(Optional — group multiple units under a project)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Prestige Lakeside Habitat, Sobha City, Jagat Enclave..."
+                  value={formData.projectName}
+                  onChange={(e) => setFormData({ ...formData, projectName: e.target.value })}
+                  className="w-full rounded-xl border border-ink/20 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brass"
+                />
+              </div>
+
               <div>
                 <label className="block font-semibold text-ink/70 mb-1">Listing Title</label>
                 <input
@@ -252,7 +393,7 @@ export default function SellerPropertiesPage() {
                   <label className="block font-semibold text-ink/70 mb-1">Property Type</label>
                   <select
                     value={formData.propertyType}
-                    onChange={(e) => setFormData({ ...formData, propertyType: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, propertyType: e.target.value as Property["propertyType"] })}
                     className="w-full rounded-xl border border-ink/20 px-3 py-2 text-sm"
                   >
                     <option value="APARTMENT">Apartment</option>
@@ -288,7 +429,9 @@ export default function SellerPropertiesPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-semibold text-ink/70 mb-1">Price (₹ INR)</label>
+                  <label className="block font-semibold text-ink/70 mb-1">
+                    {formData.listingType === "RENT" ? "Monthly Rent (₹ INR / month)" : "Price (₹ INR)"}
+                  </label>
                   <input
                     type="number"
                     required
@@ -327,7 +470,7 @@ export default function SellerPropertiesPage() {
                   <label className="block font-semibold text-ink/70 mb-1">Furnishing</label>
                   <select
                     value={formData.furnishing}
-                    onChange={(e) => setFormData({ ...formData, furnishing: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, furnishing: e.target.value as Property["furnishing"] })}
                     className="w-full rounded-xl border border-ink/20 px-3 py-2 text-sm"
                   >
                     <option value="UNFURNISHED">Unfurnished</option>
@@ -374,7 +517,7 @@ export default function SellerPropertiesPage() {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. whitefield"
+                    placeholder="e.g. whitefield, jagatpura"
                     value={formData.locality}
                     onChange={(e) => setFormData({ ...formData, locality: e.target.value.toLowerCase() })}
                     className="w-full rounded-xl border border-ink/20 px-3 py-2 text-sm"
@@ -386,6 +529,7 @@ export default function SellerPropertiesPage() {
                   <input
                     type="text"
                     required
+                    placeholder="e.g. Bengaluru, Jaipur"
                     value={formData.city}
                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                     className="w-full rounded-xl border border-ink/20 px-3 py-2 text-sm"
@@ -397,7 +541,7 @@ export default function SellerPropertiesPage() {
                   <input
                     type="text"
                     required
-                    placeholder="Full street address"
+                    placeholder="Full street / district address"
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     className="w-full rounded-xl border border-ink/20 px-3 py-2 text-sm"
@@ -439,9 +583,10 @@ export default function SellerPropertiesPage() {
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-ink px-6 py-2 text-sm font-semibold text-sand hover:bg-ink/90"
+                  disabled={submitting}
+                  className="rounded-xl bg-ink px-6 py-2 text-sm font-semibold text-sand hover:bg-ink/90 disabled:opacity-50"
                 >
-                  Publish Property
+                  {submitting ? "Saving..." : editingProperty ? "Save Changes" : "Publish Property"}
                 </button>
               </div>
             </form>

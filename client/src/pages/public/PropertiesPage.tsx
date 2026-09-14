@@ -90,11 +90,15 @@ export default function PropertiesPage() {
   };
 
   // Convert and normalize items
+  // Convert and normalize items
   type NormalizedItem = {
     id: string;
     title: string;
     price: number;
     locality: string;
+    city?: string;
+    address?: string;
+    projectName?: string;
     bhk: number;
     area: number;
     image?: string;
@@ -105,31 +109,38 @@ export default function PropertiesPage() {
     propertyType: string;
     isSold: boolean;
     source: "ivy" | "platform";
+    listingType?: string;
   };
 
   const normalizedItems: NormalizedItem[] = useMemo(() => {
     const list: NormalizedItem[] = [];
 
-    // Platform properties
+    // Platform properties (only show BUY or default on Buy page)
     if (sourceTab === "all" || sourceTab === "platform") {
-      platformProps.forEach((p) => {
-        list.push({
-          id: p.id,
-          title: p.title,
-          price: p.price,
-          locality: p.locality,
-          bhk: p.bhk,
-          area: p.carpetArea,
-          image: p.primaryImage,
-          href: `/properties/${p.id}`,
-          latitude: p.latitude,
-          longitude: p.longitude,
-          furnishing: p.furnishing.toLowerCase(),
-          propertyType: p.propertyType.toLowerCase(),
-          isSold: p.status === "SOLD",
-          source: "platform",
+      platformProps
+        .filter((p) => (p.listingType || "BUY") === "BUY")
+        .forEach((p) => {
+          list.push({
+            id: p.id,
+            title: p.title,
+            price: p.price,
+            locality: p.locality,
+            city: p.city || "Bengaluru",
+            address: p.address,
+            projectName: p.projectName,
+            bhk: p.bhk,
+            area: p.carpetArea,
+            image: p.primaryImage,
+            href: `/properties/${p.id}`,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            furnishing: p.furnishing.toLowerCase(),
+            propertyType: p.propertyType.toLowerCase(),
+            isSold: p.status === "SOLD",
+            source: "platform",
+            listingType: p.listingType || "BUY",
+          });
         });
-      });
     }
 
     // Ivy listings
@@ -142,6 +153,9 @@ export default function PropertiesPage() {
             : `${iv.bedroom} BHK ${iv.property_type || "Apartment"} in ${iv.locality}`,
           price: iv.price,
           locality: iv.locality,
+          city: "Bengaluru",
+          address: iv.apartment_name ? `${iv.apartment_name}, ${iv.locality}` : iv.locality,
+          projectName: iv.apartment_name,
           bhk: iv.bedroom,
           area: iv.carpet_area,
           image: "/defaults/apartment.svg",
@@ -152,6 +166,7 @@ export default function PropertiesPage() {
           propertyType: (iv.property_type || "").toLowerCase(),
           isSold: false,
           source: "ivy",
+          listingType: "BUY",
         });
       });
     }
@@ -159,13 +174,23 @@ export default function PropertiesPage() {
     return list;
   }, [platformProps, ivyListings, sourceTab]);
 
-  // Client-side filtering as mandated by assignment investigation!
-  // (Because API filters are sometimes ignored or case-sensitive)
+  // Client-side filtering with broad district/locality/city/address matching
   const filteredItems = useMemo(() => {
     return normalizedItems.filter((item) => {
       if (locality) {
         const needle = locality.toLowerCase().trim();
-        if (!item.locality.toLowerCase().includes(needle)) return false;
+        const loc = (item.locality || "").toLowerCase();
+        const city = (item.city || "").toLowerCase();
+        const addr = (item.address || "").toLowerCase();
+        const proj = (item.projectName || "").toLowerCase();
+        const title = (item.title || "").toLowerCase();
+        const matches =
+          loc.includes(needle) ||
+          city.includes(needle) ||
+          addr.includes(needle) ||
+          proj.includes(needle) ||
+          title.includes(needle);
+        if (!matches) return false;
       }
       if (bhk) {
         if (item.bhk !== Number(bhk)) return false;
@@ -185,6 +210,30 @@ export default function PropertiesPage() {
       return true;
     });
   }, [normalizedItems, locality, bhk, furnishing, propertyType, minPrice, maxPrice]);
+
+  // Autocomplete suggestions based on available listings
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const locationSuggestions = useMemo(() => {
+    if (!locality || locality.trim().length === 0) return [];
+    const needle = locality.toLowerCase().trim();
+    const suggestions = new Set<string>();
+
+    normalizedItems.forEach((item) => {
+      const parts = [item.locality, item.city, item.address].filter(Boolean);
+      const full = parts.join(", ");
+      if (full.toLowerCase().includes(needle)) {
+        suggestions.add(full);
+      } else {
+        if (item.locality && item.locality.toLowerCase().includes(needle)) suggestions.add(item.locality);
+        if (item.city && item.city.toLowerCase().includes(needle)) suggestions.add(item.city);
+      }
+      if (item.projectName && item.projectName.toLowerCase().includes(needle)) {
+        suggestions.add(`${item.projectName} (${item.locality})`);
+      }
+    });
+
+    return Array.from(suggestions).slice(0, 6);
+  }, [normalizedItems, locality]);
 
   // Sorting
   const sortedItems = useMemo(() => {
@@ -341,13 +390,39 @@ export default function PropertiesPage() {
       {/* Filter Bar */}
       <div className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
-          <input
-            type="text"
-            placeholder="Locality (e.g. Whitefield)"
-            value={locality}
-            onChange={(e) => setLocality(e.target.value)}
-            className="rounded-xl border border-ink/10 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brass"
-          />
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="District / Locality (e.g. Jagatpura, Whitefield)"
+              value={locality}
+              onChange={(e) => {
+                setLocality(e.target.value);
+                setShowSuggestions(true);
+                setPage(1);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brass"
+            />
+            {showSuggestions && locationSuggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 z-30 mt-1 rounded-xl border border-ink/10 bg-white p-1.5 shadow-xl text-xs space-y-1 max-h-48 overflow-y-auto">
+                {locationSuggestions.map((sug) => (
+                  <button
+                    key={sug}
+                    type="button"
+                    onClick={() => {
+                      setLocality(sug);
+                      setShowSuggestions(false);
+                      setPage(1);
+                    }}
+                    className="w-full rounded-lg px-2.5 py-1.5 text-left font-medium text-ink hover:bg-sand transition flex items-center gap-1.5"
+                  >
+                    <span>📍</span>
+                    <span className="truncate capitalize">{sug}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           <select
             value={bhk}
