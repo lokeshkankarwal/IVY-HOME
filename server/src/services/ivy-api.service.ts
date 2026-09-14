@@ -3,6 +3,43 @@ import { HttpError } from "../middleware/error.js";
 
 type IvyInit = RequestInit & { token?: string };
 
+let cachedSystemToken: string | null = null;
+let systemTokenExpiresAt = 0;
+
+export async function getSystemIvyToken(): Promise<string | null> {
+  if (cachedSystemToken && Date.now() < systemTokenExpiresAt - 30_000) {
+    return cachedSystemToken;
+  }
+  if (!env.ivyApiKey || env.ivyApiKey.includes("XXXX") || !env.ivyDemoPassword) {
+    return null;
+  }
+  try {
+    const res = await fetch(`${env.ivyBaseUrl}/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-API-Key": env.ivyApiKey,
+      },
+      body: JSON.stringify({
+        email: "demo1@ivy.homes",
+        password: env.ivyDemoPassword,
+      }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const token = (data && (data.token || data.access_token)) ?? null;
+    if (token) {
+      cachedSystemToken = String(token);
+      const expiresIn = typeof data.expires_in === "number" ? data.expires_in : 86400;
+      systemTokenExpiresAt = Date.now() + expiresIn * 1000;
+    }
+    return cachedSystemToken;
+  } catch (err) {
+    console.warn("Notice: could not auto-obtain system Ivy session token:", err);
+    return null;
+  }
+}
+
 async function ivyFetch<T>(path: string, init: IvyInit = {}): Promise<{ status: number; data: T; headers: Headers }> {
   if (!env.ivyApiKey || env.ivyApiKey.includes("XXXX")) {
     throw new HttpError(503, "Ivy API key is not configured. Set IVY_API_KEY in .env");
@@ -11,7 +48,13 @@ async function ivyFetch<T>(path: string, init: IvyInit = {}): Promise<{ status: 
   const headers = new Headers(init.headers);
   headers.set("X-API-Key", env.ivyApiKey);
   headers.set("Accept", "application/json");
-  if (init.token) headers.set("Authorization", `Bearer ${init.token}`);
+
+  // Determine token: explicitly supplied > cached system session token
+  let token = init.token;
+  if (!token && !path.startsWith("/auth/")) {
+    token = (await getSystemIvyToken()) ?? undefined;
+  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
   const res = await fetch(url, { ...init, headers });

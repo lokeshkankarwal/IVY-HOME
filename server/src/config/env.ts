@@ -22,6 +22,7 @@ export const env = {
   ivyBaseUrl: (process.env.IVY_BASE_URL ?? "https://solve.ivy.homes").replace(/\/$/, ""),
   ivyApiKey: process.env.IVY_API_KEY ?? "",
   ivyAssignedLocality: (process.env.IVY_ASSIGNED_LOCALITY ?? "").toLowerCase(),
+  ivyDemoPassword: process.env.IVY_DEMO_PASSWORD ?? "",
   superadminEmail: process.env.SUPERADMIN_EMAIL ?? "admin@ivy.local",
   superadminPassword: process.env.SUPERADMIN_PASSWORD ?? "Admin123!",
   smtpHost: process.env.SMTP_HOST ?? "",

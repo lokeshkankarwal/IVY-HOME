@@ -11,8 +11,10 @@ server/uploads
 server/prisma/dev.db
 server/prisma/dev.db-journal
 investigation/raw
+investigation/output
 client/dist
 .vscode
 coverage
-submission.json
+/submission.json
+!client/public/submission.json
 !docs/submission.template.json

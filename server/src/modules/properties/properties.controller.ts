@@ -7,7 +7,7 @@ import { defaultImageForType, deleteLocalFile, saveLocalFile } from "../../servi
 
 const propertyInput = z.object({
   title: z.string().min(3),
-  description: z.string().min(10),
+  description: z.string().min(3),
   propertyType: z.enum(["APARTMENT", "VILLA", "INDEPENDENT_HOUSE", "PLOT", "BUILDER_FLOOR"]),
   bhk: z.coerce.number().int().min(0),
   bathrooms: z.coerce.number().int().min(0).default(1),

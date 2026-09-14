@@ -239,6 +239,7 @@ export default function SellerPropertiesPage() {
                 <textarea
                   rows={3}
                   required
+                  minLength={3}
                   placeholder="Describe highlights, view, facing, ventilation, connectivity..."
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
